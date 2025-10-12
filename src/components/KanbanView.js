@@ -370,7 +370,11 @@ function BoardColumn({ lane, column, onDropTask, onDragStart, onEditTask, getMod
         const subColumns = column.subColumns || [];
         const handleDrop = (event, subStatus) => {
                 event.preventDefault();
-                onDropTask(column.name, subStatus || null);
+                onDropTask({
+                        status: column.name,
+                        subStatus: subStatus || null,
+                        lane: { id: lane.id, label: lane.label, field: lane.field, value: lane.value },
+                });
         };
 
         return (

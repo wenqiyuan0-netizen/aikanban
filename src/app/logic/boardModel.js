@@ -69,19 +69,26 @@ export function buildBoardModel({
 
         const laneMap = new Map();
         filteredTasks.forEach((task) => {
-                        const laneKeys = computeLaneKeys(task, laneConfig, members);
-                        laneKeys.forEach((laneKey) => {
-                                const entry = laneMap.get(laneKey.id) || {
-                                        id: laneKey.id,
-                                        label: laneKey.label,
-                                        color: laneKey.color,
-                                        tasksByColumn: new Map(),
-                                };
-                                const columnTasks = entry.tasksByColumn.get(task.status) || [];
-                                columnTasks.push(task);
-                                entry.tasksByColumn.set(task.status, columnTasks);
-                                laneMap.set(laneKey.id, entry);
-                        });
+                const laneKeys = computeLaneKeys(task, laneConfig, members);
+                laneKeys.forEach((laneKey) => {
+                        const entry = laneMap.get(laneKey.id) || {
+                                id: laneKey.id,
+                                label: laneKey.label,
+                                color: laneKey.color,
+                                field: laneKey.field || null,
+                                value: laneKey.value,
+                                tasksByColumn: new Map(),
+                        };
+
+                        if (entry.value === undefined && laneKey.value !== undefined) {
+                                entry.value = laneKey.value;
+                        }
+
+                        const columnTasks = entry.tasksByColumn.get(task.status) || [];
+                        columnTasks.push(task);
+                        entry.tasksByColumn.set(task.status, columnTasks);
+                        laneMap.set(laneKey.id, entry);
+                });
         });
 
         const lanes = Array.from(laneMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans'));
@@ -92,7 +99,12 @@ export function buildBoardModel({
                 swimlaneStrategy: laneConfig.value,
                 activeQuickFilters,
                 searchText,
-                lanes: lanes.map((lane) => ({ id: lane.id, label: lane.label })),
+                lanes: lanes.map((lane) => ({
+                        id: lane.id,
+                        label: lane.label,
+                        field: lane.field || null,
+                        value: lane.value,
+                })),
         };
 
         return {
@@ -107,38 +119,60 @@ function computeLaneKeys(task, laneConfig, members) {
         if (!laneConfig) return [{ id: 'default', label: '默认泳道', color: null }];
         switch (laneConfig.taskField) {
                 case 'module': {
-                        const label = task.module || '未分配模块';
+                        const value = task.module || null;
+                        const label = value || '未分配模块';
                         return [
                                 {
                                         id: `module:${label}`,
                                         label,
                                         color: getModuleColor(task.module),
+                                        field: 'module',
+                                        value,
                                 },
                         ];
                 }
                 case 'priority': {
-                        const label = task.priority || '未设置优先级';
-                        return [{ id: `priority:${label}`, label }];
+                        const value = task.priority || null;
+                        const label = value || '未设置优先级';
+                        return [
+                                { id: `priority:${label}`, label, field: 'priority', value },
+                        ];
                 }
                 case 'type': {
-                        const label = task.type || task.level || 'Task';
-                        return [{ id: `type:${label}`, label }];
+                        const value = task.type || task.level || 'Task';
+                        return [{ id: `type:${value}`, label: value, field: 'type', value }];
                 }
                 case 'assignees': {
                         const assignees = getAssigneeList(task);
                         if (!assignees.length) {
-                                return [{ id: 'assignee:unassigned', label: '未分配' }];
+                                return [
+                                        {
+                                                id: 'assignee:unassigned',
+                                                label: '未分配',
+                                                field: 'assignees',
+                                                value: null,
+                                        },
+                                ];
                         }
                         return assignees.map((id) => {
                                 const member = members.find((m) => m.id === id);
                                 return {
                                         id: `assignee:${id}`,
                                         label: member ? `${member.name} (${member.role || '成员'})` : id,
+                                        field: 'assignees',
+                                        value: id,
                                 };
                         });
                 }
                 default:
-                        return [{ id: 'default', label: '默认泳道' }];
+                        return [
+                                {
+                                        id: 'default',
+                                        label: '默认泳道',
+                                        field: laneConfig?.taskField || null,
+                                        value: null,
+                                },
+                        ];
         }
 }
 

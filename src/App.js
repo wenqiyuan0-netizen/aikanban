@@ -207,7 +207,7 @@ export default function App() {
         const cfdData = useMemo(() => calculateCfdData(data), [data]);
         const burndownData = useMemo(() => calculateBurndownData(data), [data]);
 
-        function handleDrop(status, subStatus = null) {
+        function handleDrop({ status, subStatus = null, lane }) {
                 if (appMode === APP_MODES.WORLD_INFO_SETUP) return;
                 if (!dragId) return;
 
@@ -229,6 +229,10 @@ export default function App() {
 
                 task.status = toStatus;
                 task.subStatus = subStatus || null;
+
+                if (lane?.field) {
+                        applyLaneFieldUpdate(task, lane);
+                }
 
                 if (toStatus === 'To Do') {
                         task.started_at = undefined;
@@ -256,6 +260,34 @@ export default function App() {
                 next.board.last_update = nowISO();
                 updateActiveProjectData(next);
                 setDragId(null);
+        }
+
+        function applyLaneFieldUpdate(task, lane) {
+                switch (lane.field) {
+                        case 'module': {
+                                task.module = lane.value || null;
+                                break;
+                        }
+                        case 'priority': {
+                                task.priority = lane.value || null;
+                                break;
+                        }
+                        case 'type': {
+                                task.type = lane.value || (task.level || task.type || 'Task');
+                                task.level = task.type;
+                                break;
+                        }
+                        case 'assignees': {
+                                if (lane.value) {
+                                        task.assignees = [lane.value];
+                                } else {
+                                        task.assignees = [];
+                                }
+                                break;
+                        }
+                        default:
+                                break;
+                }
         }
 
         function openAddTaskModal() {

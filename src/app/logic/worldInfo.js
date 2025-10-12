@@ -24,21 +24,19 @@ export function applyWorldPatch(currentData, worldPatch) {
 
         nextData.worldInfo = { ...nextData.worldInfo, ...worldPatch };
 
-        const newMembersList = worldPatch.memberList || [];
-        const updatedMembers = [];
-        const existingMembersMap = new Map(nextData.members.map((member) => [member.id, member]));
+        if (Array.isArray(worldPatch.memberList)) {
+                const existingMembersMap = new Map((nextData.members || []).map((member) => [member.id, member]));
 
-        newMembersList.forEach((newMember) => {
-                const existingMember = existingMembersMap.get(newMember.id);
-                if (existingMember) {
-                        updatedMembers.push({ ...existingMember, ...newMember });
-                } else {
-                        updatedMembers.push(newMember);
-                }
-        });
+                worldPatch.memberList.forEach((newMember) => {
+                        if (!newMember || !newMember.id) return;
+                        const existingMember = existingMembersMap.get(newMember.id) || {};
+                        existingMembersMap.set(newMember.id, { ...existingMember, ...newMember });
+                });
 
-        nextData.members = updatedMembers;
-        nextData.worldInfo.memberList = updatedMembers;
+                nextData.members = Array.from(existingMembersMap.values());
+                nextData.worldInfo.memberList = nextData.members;
+        }
+        nextData.board = nextData.board || {};
         nextData.board.last_update = nowISO();
 
         return nextData;

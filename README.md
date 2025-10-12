@@ -17,7 +17,7 @@ This repository contains an AI-assisted project management workspace that combin
 | Project reset scaffolding | ✅ | 引入 `projectFlow` 状态机、确认弹窗钩子与世界信息界面切换逻辑。|
 | Lightweight classifier gating | 🟡 | 现在在看板输入前触发判定并记录 `intentLog`，旧项目分支仍待对接 UI。|
 | Module documentation | ✅ | 核心模块提供双语注释，说明职责与未完事项。|
-| Manual Kanban board UX | ✅ | 支持泳道、子列、拖拽、批量筛选、列表/图表视图与数据导出，人工操作即可完成全流程。|
+| Manual Kanban board UX | ✅ | 支持泳道、子列、拖拽（含跨泳道自动更新字段）、批量筛选、列表/图表视图与数据导出，人工操作即可完成全流程。|
 | Multi-language toggle | ⏳ | UI 预留多语言切换位，尚未接入 `i18n` 工具链。|
 | Agent prompt library | ⏳ | 初步列出 prompt 层级，仍需实现正式模板与版本管理。|
 | Old project revival UX | ⏳ | 数据结构已预留 `archivedProjects`，界面切换与动画待完成。|
@@ -31,6 +31,7 @@ This repository contains an AI-assisted project management workspace that combin
 - 🔧 **User preference model empty**：`userPreferences` 占位字段尚未填充，影响个性化 prompt。
 - 🔧 **Archived project UX**：旧项目意图目前仅弹出信息提示，目录/动画/数据回填界面尚待实现。
 - ⚙️ **Classifier false positives**：轻量 Agent 仍可能把小规模任务更新判断为新项目指令，后续需通过提示词与示例继续校准。
+- ♻️ **任务删除回退尚未实现**：增量补丁目前支持新增/更新，但缺少安全的删除与撤销流程，后续在扩展 Prompt 时需加入回滚策略与本地回收站。
 - 🗓️ **Calendar view 未实现**：UI 预留入口但尚无日历渲染，需要在后续迭代中补充。
 - 🚨 **Retroactive history conflicts（历史事件冲突风险）**：当看板 Agent 通过 `event_add` 或修改任务时间戳来“补写过去”时，存在与既有事件顺序矛盾的风险（例如在任务标记为 `Done` 之后，又插入该任务的“开始”事件）。目前已通过更严格的 Prompt 约束其在修改历史前必须验证时间线一致性，如需真正重写历史必须向用户确认；后续仍需加入自动回归测试与冲突检测。
 
@@ -140,6 +141,7 @@ flowchart TD
 
 - **策略存储**：`data.board.swimlanes.defaultStrategy` 记录当前泳道模式（module/assignee/priority/type）。
 - **多责任人支持**：负责人泳道会复制卡片至多条泳道，Prompt 可从 `boardLaneBreakdown` 获取聚合数据。
+- **跨泳道拖拽自动赋值**：当用户把任务拖到不同泳道时，前端会同步更新对应字段（如 `module`、`assignees`、`priority`、`type`），确保刷新后不会回弹，并让 Prompt 读取最新分组信息。
 - **UI 操作**：`onChangeSwimlane` 更新策略并持久化为 `boardSwimlaneStrategy`。
 
 ### D. Filters & Views
@@ -209,7 +211,7 @@ flowchart TD
    **完成后更新 README：** （进行中）后续将追加判定覆盖率统计与示例 JSON。
    - Build log（2025-05-30）：修正轻量判定导致的误触发——仅当 AI 新增任务时才进入世界信息补写；取消后不再清空当前看板。
 2. **World info session isolation**：构建全新 UI 容器、清空旧聊天、实现上传解析与头脑风暴模式切换。
-   - Next：确保确认弹窗返回看板后立即触发看板欢迎 prompt（已完成）、并强化判定示例以避免普通任务触发世界信息流。
+   - Next：确保确认弹窗返回看板后立即触发看板欢迎 prompt（已完成）、并强化判定示例以避免普通任务触发世界信息流；持续改进成员列表合并逻辑，允许 AI 通过增量补丁逐步补齐成员而不会覆盖旧数据（已完成首轮防护）。
    **完成后更新 README：** 附上字段校验列表与成功示例。
 3. **Kanban reboot handshake**：实现世界信息 -> 看板的 prompt 交接、初始任务生成确认、虚拟时间同步入口。
    **完成后更新 README：** 说明初始任务生成策略与用户覆盖选项。
@@ -250,6 +252,7 @@ flowchart TD
 
 ## Build log · 构建记录
 
+- 2025-05-31 · Step 6：修复跨泳道拖拽只更新列状态的问题，并将世界信息成员补丁改为增量合并，避免误删已有成员。
 - 2025-05-30 · Step 5：更新 Prompt 管理计划，梳理向桌面付费套件演进所需的账号、实时协作、论坛、计费等技术路线。
 - 2025-05-29 · Step 4：接入轻量判定 Agent，记录判定日志，按意图触发新项目确认与旧项目提示，并在 UI 显示意图 Banner。
 - 2025-05-28 · Step 3：整理多 Agent 工作流、补充状态图与数据图，归档已知缺口，并删除过时 FAQ。
