@@ -1,3 +1,22 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 实现世界信息配置界面：AI 引导用户补充项目元数据，并将结果写回当前项目。
+ * - 首次进入时自动推送欢迎消息。
+ *
+ * Implementation Notes / 实现方式:
+ * - 复用 `generatePatch` 调用世界信息 schema，AI 返回 `world_patch` 后合并到当前项目。
+ * - 与 `appendChat` 配合保持聊天记录，并通过回调 `onFlowComplete/onFlowAbort` 向外部状态机报告流程进度。
+ *
+ * Pending / 未完成:
+ * - 尚未在组件内直接清理旧聊天，需要依赖上层在进入流程前调用。
+ * - 仍缺乏对上传附件、项目模板选择等扩展输入的支持。
+ *
+ * Next Steps / 后续计划:
+ * - 与世界信息摘要模块联动，展示 AI 生成的结构化结果预览。
+ * - 增加表单预览、附件上传等功能以丰富世界信息。
+ */
 import React, { useEffect } from 'react';
 import { APP_MODES } from '../app/constants/appModes';
 import { generatePatch } from '../app/services/aiService';
@@ -5,7 +24,6 @@ import { generatePatch } from '../app/services/aiService';
 export function WorldInfoSetup({
         currentWorldInfo,
         setWorldInfo,
-        setAppMode,
         isAiThinking,
         setIsAiThinking,
         apiKey,
@@ -13,6 +31,8 @@ export function WorldInfoSetup({
         worldChat,
         appendChat,
         inputRef,
+        onFlowAbort,
+        onFlowComplete,
 }) {
         useEffect(() => {
                 if (worldChat.length === 0) {
@@ -63,7 +83,10 @@ export function WorldInfoSetup({
                                         body: 'Agent 成功收集到所有项目元数据，看板管理模式已激活。',
                                         type: 'success',
                                 });
-                                setAppMode(APP_MODES.KANBAN);
+                                onFlowComplete?.({
+                                        worldPatch: parsedResponse.world_patch,
+                                        aiResponse: parsedResponse.ai_response,
+                                });
                         } else if (parsedResponse.status === 'INCOMPLETE' && parsedResponse.world_patch) {
                                 setWorldInfo(parsedResponse.world_patch);
                         }
@@ -84,7 +107,7 @@ export function WorldInfoSetup({
                         <div className='px-4 py-3 border-b text-base font-semibold text-purple-700 bg-purple-50 flex justify-between items-center'>
                                 项目世界信息设置
                                 <button
-                                        onClick={() => setAppMode(APP_MODES.KANBAN)}
+                                        onClick={() => onFlowAbort?.()}
                                         className='text-xs px-2 py-1 rounded bg-purple-200 hover:bg-purple-300'
                                 >
                                         返回看板 (不保存)

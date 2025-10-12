@@ -1,4 +1,21 @@
-import { COLUMN_ORDER } from '../constants/colors';
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 计算看板核心指标：任务计数、点数、吞吐量、在制品、Lead/Cycle 时间、WIP 违规等。
+ *
+ * Implementation Notes / 实现方式:
+ * - 结合任务状态与事件时间戳，输出综合指标对象供仪表板与 AI Prompt 使用。
+ * - 使用工具函数 `daysBetween`、`getTaskPoints` 保证时间与点数计算一致。
+ *
+ * Pending / 未完成:
+ * - 未实现团队容量预测、SLA 告警等高级指标。
+ * - 缺少针对虚拟时间轴或多项目并行的聚合逻辑。
+ *
+ * Next Steps / 后续计划:
+ * - 将指标拆分为可配置的 selector，允许根据项目类型启用/禁用。
+ * - 增加指标缓存与比较功能，支持旧项目回放时的历史对比。
+ */
 import { DURATION_THRESHOLDS, getTaskPoints } from '../constants/task';
 import { daysBetween, nowISO } from '../utils/dateUtils';
 

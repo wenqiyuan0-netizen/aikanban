@@ -1,3 +1,21 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 提供计算累计流程图（CFD）与燃尽图所需的数据处理函数。
+ *
+ * Implementation Notes / 实现方式:
+ * - `calculateCfdData` 会遍历任务与事件历史，基于列顺序追踪任务状态变迁并生成按日统计。
+ * - `calculateBurndownData` （后文）通过任务点数与完成时间计算剩余工作量曲线。
+ *
+ * Pending / 未完成:
+ * - 尚未支持自定义时间范围、时区调整或多语言图例。
+ * - 指标尚未与虚拟时间轴同步。
+ *
+ * Next Steps / 后续计划:
+ * - 将计算逻辑抽象为可复用的 selector，并在新项目启动时提供历史同步接口。
+ * - 引入缓存或 memoization 减少重复计算。
+ */
 import { COLUMN_ORDER } from '../constants/colors';
 import { getTaskPoints } from '../constants/task';
 

@@ -1,3 +1,24 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - Acts as the top-level orchestrator that wires workspace数据、聊天记录以及看板视图、世界信息配置等 UI 组件。
+ * - Implements task CRUD、拖拽迁移、导入导出、以及与 AI 服务的异步交互（包括补丁生成与确认弹窗）。
+ * - Manages本地状态（模态框、提示消息、正在思考标记等），同时复用 `useWorkspace` 钩子落地多项目存储骨架。
+ *
+ * Implementation Notes / 实现方式:
+ * - 通过 `useWorkspace` 统一读取与更新当前项目数据，并追踪看板/世界信息双通道聊天。
+ * - 使用 `useMemo` 与 `useCallback` 优化度量计算、列过滤、补丁应用等性能敏感逻辑。
+ * - 借助多种模态组件（新增任务、编辑、删除确认、AI 任务确认等）完成用户操作闭环，并引入 `projectFlow` 状态机管理项目废弃/重启流。
+ *
+ * Pending / 未完成:
+ * - 项目归档与旧项目恢复仍未实现（当前仅在内存中暂存快照）。
+ * - 看板与世界信息聊天窗口的 UI 分离、美化、及多语言切换仍待实现。
+ *
+ * Next Steps / 后续计划:
+ * - 将状态机与本地存储结合，真正归档旧项目并支持恢复/切换。
+ * - 将世界信息 Agent 的结构化输出与看板初始提示对接，实现新项目的自动化接管流程。
+ */
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
         AddTaskModal,
@@ -21,6 +42,7 @@ import { computeMetrics, buildInsights } from './app/logic/metrics';
 import { calculateBurndownData, calculateCfdData } from './app/logic/charts';
 import { applyPatch, enforceLinearWorkflow } from './app/logic/patches';
 import { applyWorldPatch } from './app/logic/worldInfo';
+import { PROJECT_FLOW_EVENTS, PROJECT_FLOW_STATES, createProjectFlowContext, reduceProjectFlow } from './app/logic/projectFlow';
 import { generatePatch } from './app/services/aiService';
 import { clone } from './app/utils/clone';
 import { nowISO, fmt, toUtcIso } from './app/utils/dateUtils';
@@ -45,6 +67,10 @@ export default function App() {
         const [view, setView] = useState('kanban');
         const [appMode, setAppMode] = useState(APP_MODES.KANBAN);
 
+        const [projectFlow, setProjectFlow] = useState(createProjectFlowContext());
+        const [preResetSnapshot, setPreResetSnapshot] = useState(null);
+        const isAbortFlowActive = projectFlow.state !== PROJECT_FLOW_STATES.KANBAN_ACTIVE;
+
         const [showResetConfirm, setShowResetConfirm] = useState(false);
         const [showClearTasksConfirm, setShowClearTasksConfirm] = useState(false);
         const [showAddTaskModal, setShowAddTaskModal] = useState(false);
@@ -56,6 +82,21 @@ export default function App() {
         const [isAiThinking, setIsAiThinking] = useState(false);
 
         const inputRef = useRef(null);
+
+        const dispatchProjectFlow = useCallback((type, payload = {}) => {
+                setProjectFlow((previous) => reduceProjectFlow(previous, { type, payload }));
+        }, []);
+
+        const beginProjectAbortFlow = useCallback(() => {
+                if (appMode === APP_MODES.WORLD_INFO_SETUP || isAbortFlowActive) return;
+                dispatchProjectFlow(PROJECT_FLOW_EVENTS.REQUEST_ABORT);
+                setShowResetConfirm(true);
+        }, [appMode, dispatchProjectFlow, isAbortFlowActive]);
+
+        const handleResetModalClose = useCallback(() => {
+                setShowResetConfirm(false);
+                dispatchProjectFlow(PROJECT_FLOW_EVENTS.CANCEL_ABORT);
+        }, [dispatchProjectFlow]);
 
         const columns = useMemo(() => {
                 const cols = (data.board?.columns || [])
@@ -197,7 +238,7 @@ export default function App() {
         }
 
         function resetAll() {
-                setShowResetConfirm(true);
+                beginProjectAbortFlow();
         }
 
         const setWorldInfo = useCallback(
@@ -208,12 +249,96 @@ export default function App() {
         );
 
         function handleResetConfirm() {
-                updateActiveProjectData(clone(DEFAULT_DATA));
+                const snapshot = {
+                        data: clone(data),
+                        kanbanChat: [...(chatLogsRef.current.kanban || [])],
+                        worldChat: [...(chatLogsRef.current.world || [])],
+                };
+                setPreResetSnapshot(snapshot);
+
+                dispatchProjectFlow(
+                        PROJECT_FLOW_EVENTS.CONFIRM_ABORT,
+                        {
+                                metadata: {
+                                        preResetSummary: {
+                                                title: data.worldInfo?.projectName || '未命名项目',
+                                                taskCount: data.tasks?.length || 0,
+                                                capturedAt: nowISO(),
+                                        },
+                                },
+                        },
+                );
+
+                updateActiveProjectData(() => {
+                        const blank = clone(DEFAULT_DATA);
+                        blank.tasks = [];
+                        blank.events = [];
+                        blank.worldInfo = {};
+                        blank.board.last_update = nowISO();
+                        return blank;
+                });
+
                 setKanbanChatLog(INITIAL_KANBAN_CHAT);
                 setWorldChatLog([]);
-                setAppMode(APP_MODES.KANBAN);
+                setPendingTaskCreation(null);
+                setAppMode(APP_MODES.WORLD_INFO_SETUP);
                 setShowResetConfirm(false);
+                setMessage({
+                        title: '进入世界信息配置',
+                        body: '已保存旧项目快照，请重新填写新项目的世界信息，以便看板 AI 接管。',
+                        type: 'info',
+                });
         }
+
+        const handleWorldInfoAbort = useCallback(() => {
+                dispatchProjectFlow(PROJECT_FLOW_EVENTS.CANCEL_ABORT);
+                if (preResetSnapshot) {
+                        updateActiveProjectData(() => clone(preResetSnapshot.data));
+                        setKanbanChatLog(
+                                preResetSnapshot.kanbanChat && preResetSnapshot.kanbanChat.length
+                                        ? preResetSnapshot.kanbanChat
+                                        : INITIAL_KANBAN_CHAT,
+                        );
+                        setWorldChatLog(preResetSnapshot.worldChat || []);
+                }
+                setPreResetSnapshot(null);
+                setAppMode(APP_MODES.KANBAN);
+                setMessage({ title: '已取消项目重置', body: '已恢复到之前的项目状态。', type: 'info' });
+        }, [
+                dispatchProjectFlow,
+                preResetSnapshot,
+                updateActiveProjectData,
+                setKanbanChatLog,
+                setWorldChatLog,
+                setAppMode,
+                setMessage,
+        ]);
+
+        const handleWorldInfoComplete = useCallback(
+                (result) => {
+                        dispatchProjectFlow(
+                                PROJECT_FLOW_EVENTS.WORLD_INFO_COMPLETE,
+                                {
+                                        metadata: {
+                                                newProjectName: result?.worldPatch?.projectName,
+                                                completedAt: nowISO(),
+                                        },
+                                },
+                        );
+                        setAppMode(APP_MODES.KANBAN);
+                        setMessage({
+                                title: '新项目准备完成',
+                                body: result?.worldPatch?.projectName
+                                        ? `世界信息配置完成：${result.worldPatch.projectName}。要不要我来规划第一批任务？`
+                                        : '世界信息配置完成，开始新的看板对话吧！',
+                                type: 'success',
+                        });
+                        setKanbanChatLog(INITIAL_KANBAN_CHAT);
+                        setPreResetSnapshot(null);
+                        dispatchProjectFlow(PROJECT_FLOW_EVENTS.RETURN_TO_KANBAN);
+                },
+                [dispatchProjectFlow, setAppMode, setMessage, setKanbanChatLog],
+        );
 
         function handleDeleteTask(task) {
                 setEdit(null);
@@ -464,7 +589,6 @@ export default function App() {
                                         <WorldInfoSetup
                                                 currentWorldInfo={worldInfo}
                                                 setWorldInfo={setWorldInfo}
-                                                setAppMode={setAppMode}
                                                 isAiThinking={isAiThinking}
                                                 setIsAiThinking={setIsAiThinking}
                                                 apiKey={apiKey}
@@ -472,6 +596,8 @@ export default function App() {
                                                 worldChat={worldChatLog}
                                                 appendChat={appendChat}
                                                 inputRef={inputRef}
+                                                onFlowAbort={handleWorldInfoAbort}
+                                                onFlowComplete={handleWorldInfoComplete}
                                         />
                                 ) : (
                                         <KanbanView
@@ -501,7 +627,7 @@ export default function App() {
 
                         <EditTaskModal task={edit} onClose={() => setEdit(null)} onDelete={handleDeleteTask} onSave={onEditSave} />
 
-                        {showResetConfirm && <ResetConfirmModal onClose={() => setShowResetConfirm(false)} onConfirm={handleResetConfirm} />}
+                        {showResetConfirm && <ResetConfirmModal onClose={handleResetModalClose} onConfirm={handleResetConfirm} />}
 
                         {showClearTasksConfirm && (
                                 <ClearTasksConfirmModal onClose={() => setShowClearTasksConfirm(false)} onConfirm={handleClearTasksConfirm} />

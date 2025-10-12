@@ -1,3 +1,21 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 渲染任务编辑模态窗，允许修改任务基础字段、阻塞原因、负责人等。
+ * - 提供删除、保存、关闭等回调入口。
+ *
+ * Implementation Notes / 实现方式:
+ * - 使用受控表单 ID (`editForm`) 供外部通过原生 FormData 读取，避免在组件内部维护大量状态。
+ * - 点击遮罩关闭模态，避免事件冒泡干扰。
+ *
+ * Pending / 未完成:
+ * - 未增加表单验证或错误提示。
+ * - 尚未提供多语言标签与更友好的布局适配。
+ *
+ * Next Steps / 后续计划:
+ * - 接入表单校验、字段描述、以及与 AI 建议的联动（如自动填充估算）。
+ */
 import React from 'react';
 
 export function EditTaskModal({ task, onClose, onDelete, onSave }) {

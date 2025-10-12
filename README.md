@@ -45,7 +45,7 @@ This repository hosts an experimental AI-assisted Kanban board. The current prio
 ### 4. 任务拆解
 
 1. 扩充存储模块：支持多项目命名空间、读写归档数据。
-2. 实现确认弹窗与状态迁移回调，断开旧项目 UI 聊天。
+2. 实现确认弹窗与状态迁移回调，断开旧项目 UI 聊天。（进行中：已引入 `projectFlow` 状态机与快照暂存，待归档落地。）
 3. 构建世界信息配置向导：
    - 用户界面空白状态，无旧项目痕迹。
    - Agent 输出的结构化摘要需符合 schema 校验。
@@ -94,6 +94,11 @@ This repository hosts an experimental AI-assisted Kanban board. The current prio
 5. **Telemetry & QA 观测与验收**：为关键节点埋点（确认点击、摘要生成、旧项目唤醒），并编写端到端脚本验证状态清空与数据迁移是否符合预期。
 
 通过上述步骤，既能保障“新项目”流程干净利落，又为未来的旧项目恢复功能预留完整数据链路。
+
+## Build log · 构建记录
+
+- 2025-05-28 · Step 1：为 `src/app/**` 与 `src/components/**` 关键文件补充模块级注释，明确已完成功能、实现方式与待办事项，方便后续协作与代码审阅。
+- 2025-05-28 · Step 2：引入 `projectFlow` 状态机与项目快照机制，接管“废弃项目 → 世界信息重置 → 回到看板”的流程开端，并在 UI 中触发世界信息配置的干净上下文。
 
 ## Recommended workflow 建议工作流
 

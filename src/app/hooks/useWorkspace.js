@@ -1,3 +1,24 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 提供顶层工作区（workspace）状态钩子，负责加载、保存、以及更新当前项目数据与聊天记录。
+ * - 支持多项目骨架：当前项目、归档项目、聊天分通道（看板 / 世界信息）。
+ * - 自动同步聊天引用，确保模态/AI 调用拿到最新日志，同时将变更持久化到本地存储。
+ *
+ * Implementation Notes / 实现方式:
+ * - `loadWorkspace` / `saveWorkspace` 从 localStorage 读取/写入，并通过 `clone` 保持不可变性。
+ * - 利用 `useEffect` 侦听聊天变动更新 workspace，并通过 `chatLogsRef` 暴露最新快照。
+ * - `appendChat` 根据模式写入对应通道，并触发滚动到底的 UI 行为。
+ *
+ * Pending / 未完成:
+ * - 尚未暴露项目归档、恢复、或多项目索引的操作接口。
+ * - 未存储世界信息配置的结构化输出摘要（仅保留聊天原文）。
+ *
+ * Next Steps / 后续计划:
+ * - 扩展为返回状态机驱动的项目流控制句柄，帮助 App 组件在废弃/切换项目时共享逻辑。
+ * - 引入 `worldInfoSessions` 的 CRUD API，便于在世界信息配置完成后生成摘要并归档。
+ */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { APP_MODES } from '../constants/appModes';
 import { INITIAL_KANBAN_CHAT } from '../constants/chat';

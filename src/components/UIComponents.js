@@ -1,14 +1,21 @@
-// src/components/UIComponents.js
 /**
- * 🧩 UI Components for AI-Kanban App
- * -----------------------------------
- * 本文件仅包含纯前端 UI 组件（无业务逻辑、无状态依赖）。
- * 每个组件都是可独立复用的视图单元。
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 汇总无状态 UI 组件（看板列、任务卡片、模态框、消息框等），供 `App` 与 `KanbanView` 复用。
+ * - 所有组件保持展示职责，关键数据与回调由上层传入。
  *
- * 外部依赖项（请从上层导入）：
- * - getModuleColor(module)
- * - getTaskPoints(level)
- * - fmt(isoDate)
+ * Implementation Notes / 实现方式:
+ * - 使用函数式组件 + Tailwind 类快速构建样式，尽量避免内部状态（除少量交互如模态 tab）。
+ * - 将拖拽、防止冒泡、按钮回调等交互通过 props 暴露，方便业务层组合。
+ *
+ * Pending / 未完成:
+ * - 模态框缺少动画、可访问性（聚焦管理、键盘操作）。
+ * - 部分文案写死为中文，尚未适配多语言。
+ *
+ * Next Steps / 后续计划:
+ * - 引入 UI 设计规范（颜色、间距、字体），统一组件风格。
+ * - 为未来的管理员视图或多语言需求拆分更细粒度的组件。
  */
 
 import React, { useState } from 'react';

@@ -1,3 +1,21 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 以 JSON Schema 形式描述看板与世界信息 Agent 需要遵循的响应结构。
+ *
+ * Implementation Notes / 实现方式:
+ * - `KANBAN_PATCH_SCHEMA` 与 `WORLD_INFO_SCHEMA` 均约束 AI 输出字段，便于前端安全解析。
+ * - Schema 包含中文提示，强调语气/语言要求。
+ *
+ * Pending / 未完成:
+ * - 未覆盖多模型（快/慢模型）或不同语言下的 schema 变体。
+ * - 缺少对项目废弃/恢复相关的结构化指令定义。
+ *
+ * Next Steps / 后续计划:
+ * - 为新状态机事件（如 `REQUEST_PROJECT_RESET`）补充 schema，并与 prompt 模板保持同步。
+ * - 考虑将 schema 转化为可复用的 Zod/TypeScript 类型。
+ */
 export const KANBAN_PATCH_SCHEMA = {
         type: 'OBJECT',
         properties: {

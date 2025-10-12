@@ -1,3 +1,22 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 封装与 DeepSeek API 的交互，根据不同模式选择相应的 system prompt 与响应 schema。
+ * - 处理超时控制、API Key 选择以及响应解析。
+ *
+ * Implementation Notes / 实现方式:
+ * - 构建统一的消息数组，将 schema 以 JSON 字符串附加到系统提示中，确保 AI 返回严格的 JSON。
+ * - 通过 `response_format: json_object` 强制 DeepSeek 以 JSON 返回。
+ *
+ * Pending / 未完成:
+ * - 未实现快/慢模型切换、流式响应或重试机制。
+ * - 缺少错误日志上报与更细粒度的异常分类。
+ *
+ * Next Steps / 后续计划:
+ * - 引入多模型路由与分层 prompt 管理，将废弃项目流程相关指令纳入。
+ * - 支持 AbortController 的外部控制以及 UI 级别的进度提示。
+ */
 import { APP_MODES } from '../constants/appModes';
 import { DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, HARDCODED_API_KEY } from '../config/apiConfig';
 import { KANBAN_PATCH_SCHEMA, WORLD_INFO_SCHEMA } from './aiSchemas';

@@ -1,3 +1,20 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 显示应用底部提示：当前模式、安全提醒、API Key 配置说明。
+ *
+ * Implementation Notes / 实现方式:
+ * - 通过 props 读取模式枚举，动态显示文案。
+ *
+ * Pending / 未完成:
+ * - 缺少国际化与权限区分提示。
+ * - 未展示版本号或状态机信息。
+ *
+ * Next Steps / 后续计划:
+ * - 根据多项目状态提供更多上下文（当前项目名、最后更新时间）。
+ * - 加入链接（帮助文档、隐私政策）。
+ */
 import React from 'react';
 import { APP_MODES } from '../../app/constants/appModes';
 

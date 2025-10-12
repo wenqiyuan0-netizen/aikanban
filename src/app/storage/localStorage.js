@@ -1,3 +1,22 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 负责将工作区数据持久化到浏览器 localStorage，包括从旧版本数据迁移。
+ * - 保证初始化时至少存在一个项目，并维护 prompt 版本等元数据。
+ *
+ * Implementation Notes / 实现方式:
+ * - `rebuildWorkspace` 通过 `createProjectRecord` 规范化项目结构，自动修补缺失字段。
+ * - 在加载失败时提供兜底 skeleton 并立即持久化，防止空数据导致后续报错。
+ *
+ * Pending / 未完成:
+ * - 未加入加密、版本升级策略或服务端同步。
+ * - 未提供归档项目的读取/写回工具函数。
+ *
+ * Next Steps / 后续计划:
+ * - 扩展为支持多端同步（IndexedDB / 后端 API）。
+ * - 与状态机结合，在项目废弃时写入 `archivedProjects`。
+ */
 import { createWorkspaceSkeleton, createProjectRecord, migrateLegacyDataToWorkspace, ensureProjectRecord } from '../data/workspace';
 import { clone } from '../utils/clone';
 
