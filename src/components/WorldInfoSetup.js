@@ -56,6 +56,9 @@ export function WorldInfoSetup({
                 if (entryContext.source === 'ai_task_follow_up') {
                         return 'AI 新增任务后触发的补充流程，请完善对应的世界信息。';
                 }
+                if (entryContext.source === 'world_info_kickoff') {
+                        return '世界信息完成后自动欢迎流程触发的补充，会协助你为新增任务补齐上下文。';
+                }
                 if (entryContext.source === 'manualEntry') {
                         return '你从头部菜单进入了世界信息配置，可以在此更新项目元数据。';
                 }

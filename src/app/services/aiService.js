@@ -119,6 +119,7 @@ export const generatePatch = async (apiKey, mode, fullPrompt) => {
                         3. 如果信息完整且无矛盾，\`status\` 设为 "COMPLETE"，并生成完整的 \`world_patch\` 结构。
                         4. 所有日期字段必须是 UTC ISO 8601 格式。
                         5. \`world_patch.memberList\` 必须是包含 \`id\`, \`name\`, \`role\` 对象的数组。
+                        6. \`world_patch.moduleList\` 用于标记并行推进的任务块（例如：睡眠区、饮食区、运动区或不同系统模块）。如果用户尚未提到并行模块，请返回空数组或保留历史值，不要强行杜撰。
                 `;
         } else {
                 responseSchema = KANBAN_PATCH_SCHEMA;

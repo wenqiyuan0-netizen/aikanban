@@ -20,6 +20,7 @@ This repository contains an AI-assisted project management workspace that combin
 | Multi-language toggle | ⏳ | UI 预留多语言切换位，尚未接入 `i18n` 工具链。|
 | Agent prompt library | ⏳ | 初步列出 prompt 层级，仍需实现正式模板与版本管理。|
 | Old project revival UX | ⏳ | 数据结构已预留 `archivedProjects`，界面切换与动画待完成。|
+| World-info → Kanban hand-off | ✅ | 完成世界信息配置后，系统会自动触发看板欢迎 prompt，并仅在新增任务时引导补写世界信息。|
 
 ## Known bugs & gaps · 已知问题与缺口
 
@@ -28,6 +29,7 @@ This repository contains an AI-assisted project management workspace that combin
 - 🔧 **Colour harmonisation**：AI 返回的颜色尚未映射到“中国传统色色系”方案，需在本地增加色板校正逻辑。
 - 🔧 **User preference model empty**：`userPreferences` 占位字段尚未填充，影响个性化 prompt。
 - 🔧 **Archived project UX**：旧项目意图目前仅弹出信息提示，目录/动画/数据回填界面尚待实现。
+- ⚙️ **Classifier false positives**：轻量 Agent 仍可能把小规模任务更新判断为新项目指令，后续需通过提示词与示例继续校准。
 
 ## Multi-agent focus · 多 Agent 协同重点
 
@@ -93,31 +95,46 @@ flowchart TD
     K -->|system directives + human replies| UI
 ```
 
+### 4. Prompt payload dictionary · Prompt 载荷字典
+
+| 名称 | 来源 | 说明 |
+| ---- | ---- | ---- |
+| `worldInfo` | `workspace.projects[projectId].data.worldInfo` | 世界信息 Agent 生成的结构化项目摘要，含 `projectName`、`projectGoal`、`keyDeadline`、可选的 `moduleList`、`memberList`。|
+| `worldChatLog` | `workspace.projects[projectId].chat.world` | 世界信息配置阶段的聊天原文；在看板 Prompt 中以“世界信息配置对话记录”传入，方便回顾头脑风暴细节。|
+| `kanbanChatLog` | `workspace.projects[projectId].chat.kanban` | 看板日常对话记录。生成 prompt 时取最近若干条并附带系统消息、轻量判定结果。|
+| `boardState` | `workspace.projects[projectId].data` | 当前项目的完整数据载荷，含 `board.columns`、`tasks`、`events`、阻塞信息等，是 Kanban Agent 执行补丁的依据。|
+| `metrics` / `insights` | `buildInsights(data)` | 基于本地统计的健康度指标（如 WIP、阻塞告警、吞吐量），在 prompt 中提醒 AI 衡量风险。|
+| `intentLog` | `workspace.projects[projectId].intentLog` | 轻量判定 Agent 的历史结果，帮助后续 prompt 调整语气或解释分类原因。|
+| `userPreferences` | 预留字段 | 尚未填充的个性化设定，未来会同步到看板 prompt 中定义风格和提醒方式。|
+| `worldInfoEntryContext` | `projectFlow` 上下文 | 触发世界信息流程的来源（新项目/AI 新任务/手动进入），在 prompt 中提示 AI 避免引用旧项目上下文。|
+
+> 📌 提示：看板 Agent 的 prompt 在迎接用户回到看板时会收到以上所有字段；当世界信息 Agent 完成配置后，系统会主动发送欢迎语，并强制要求本回合的 `patch_instructions` 为空数组，避免未确认的自动改动。
+
 ## End-to-end usage walkthrough · 用户使用流程
 
 1. **Login & language selection 登录与语言切换**  
    用户打开应用后进入登录界面，可切换中英等语言。登录成功即进入看板聊天界面。
 2. **Initial command -> classifier 首次指令走轻量判定**
    所有高阶指令（新项目 / 当前项目 / 旧项目）先由轻量 Agent 分类；判定结果与置信度写入 `intentLog` 供调试。若未来扩展“文字游戏”等功能，可在 JSON 中预留字段。
-3. **New project -> world info 新项目流程**  
+3. **New project -> world info 新项目流程**
    - 轻量 Agent 判定为 `NEW_PROJECT` 时，触发世界信息配置界面。
    - 世界信息 Agent 引导头脑风暴或解析上传的计划书，补齐项目结构化信息（目标、阶段、依赖、截止时间等）。
    - 完成后弹出确认弹窗，展示 Agent 整理的摘要，用户确认即保存并返回看板。
-4. **Hand-off to Kanban 交接至看板**  
-   - 看板界面清空旧聊天，加载新世界信息与完整配置对话记录。
-   - 看板 Agent 询问用户是由它自动生成初始看板还是用户手动创建；其响应包括人类可读文本与给系统的 JSON 指令。
-   - 若 AI 生成初始任务，将通过增量补丁写入任务列，再次弹窗确认。
-5. **Daily operations 日常操作**  
+4. **Hand-off to Kanban 交接至看板**
+   - 看板界面清空旧聊天，加载新世界信息与完整配置对话记录，并由系统自动发送欢迎语。
+   - 看板 Agent 自动接收到一条「返回看板欢迎」prompt，要求它总结世界信息并确认是否需要自动规划；本回合 `patch_instructions` 会被强制设为空数组，待用户明确授权后再执行任务拆分。
+   - 若 AI 生成初始任务，将通过增量补丁写入任务列，并且仅在新增任务时才跳转到世界信息补写流程。
+5. **Daily operations 日常操作**
    - 每次重要命令（如废弃项目、切换旧项目、合并项目）都先通过轻量 Agent 判定。
    - 看板 Agent 的 Prompt 持续包含：阻塞信息、当前任务列、世界信息摘要、用户习惯（占位）、操控规则、最近聊天片段。
-6. **Project completion or abandon 项目完成/废弃**  
+6. **Project completion or abandon 项目完成/废弃**
    - 用户表达“完成”或“不做了”时，轻量 Agent 识别为 `NEW_PROJECT` 流程，触发二次确认和世界信息重置。
-   - 世界信息配置完成后回到看板，旧对话与任务被清空，但保留归档，可在未来唤醒。
-7. **Reviving archived projects 唤醒旧项目**  
+   - 世界信息配置完成后回到看板，旧对话与任务被清空，但保留归档，可在未来唤醒；系统会自动推送欢迎 prompt，提醒用户新世界信息已生效。
+7. **Reviving archived projects 唤醒旧项目**
    - 轻量 Agent 判定为 `ARCHIVED_PROJECT`。若用户仅提到“给我旧项目列表”，则跳转到旧项目目录界面；若指明具体名称，直接载入对应看板。
    - 用户确认继续时，旧项目成为当前项目；若仅查看后退出，则保持现状。
    - 合并项目通过本地 UI 封闭式提问与关键词判断，无需 AI 参与。
-8. **Colour management 颜色管理**  
+8. **Colour management 颜色管理**
    - 看板 Agent 返回的配色将映射到预设的中国传统色板，确保视觉一致性。
 
 ## Implementation roadmap · 实施路线图
@@ -151,10 +168,12 @@ flowchart TD
 1. **Finalize classifier loop**：✅（2025-05-29）首轮接入完成，已在看板输入前调用 `classifyIntent`、落地 `intentLog`、触发新项目/旧项目提示。
    - Next：补齐登录入口、管理员命令、归档目录等分支，扩充 `meta` 字段校验与埋点可视化。
    **完成后更新 README：** （进行中）后续将追加判定覆盖率统计与示例 JSON。
+   - Build log（2025-05-30）：修正轻量判定导致的误触发——仅当 AI 新增任务时才进入世界信息补写；取消后不再清空当前看板。
 2. **World info session isolation**：构建全新 UI 容器、清空旧聊天、实现上传解析与头脑风暴模式切换。
    **完成后更新 README：** 附上字段校验列表与成功示例。
-3. **Kanban reboot handshake**：实现世界信息 -> 看板的 prompt 交接、初始任务生成确认、虚拟时间同步入口。  
+3. **Kanban reboot handshake**：实现世界信息 -> 看板的 prompt 交接、初始任务生成确认、虚拟时间同步入口。
    **完成后更新 README：** 说明初始任务生成策略与用户覆盖选项。
+   - Build log（2025-05-30）：新增自动欢迎流程与 `patch_instructions=[]` 约束，避免世界信息确认后仍需手动发送指令。
 4. **Archived project explorer**：实现目录视图、旧项目动画切换、合并流程；补齐 `archivedProjects` schema。  
    **完成后更新 README：** 发布旧项目唤醒 UX 截图与数据结构示例。
 5. **i18n integration & UI polish**：导入 `i18next`，实现主题色映射、组件美化与可视化（燃尽图、CDF、WIP 等）优化。

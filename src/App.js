@@ -334,6 +334,56 @@ export default function App() {
                 [setAppMode, setWorldInfoEntryContext],
         );
 
+        const processKanbanPatchResponse = useCallback(
+                ({ baseData, patchInstructions, source = 'kanban', onNoNewTasksApplied }) => {
+                        if (!Array.isArray(patchInstructions) || patchInstructions.length === 0) {
+                                setPendingTaskCreation(null);
+                                return { previewCount: 0 };
+                        }
+
+                        const normalizedPatches = patchInstructions.map((patch) => {
+                                if (patch?.type === 'task_add' && patch.details) {
+                                        return {
+                                                ...patch,
+                                                details: {
+                                                        ...patch.details,
+                                                        id:
+                                                                patch.details.id ||
+                                                                `t-${Math.random().toString(36).slice(2, 8)}`,
+                                                        status: patch.details.status || 'To Do',
+                                                        created_at: patch.details.created_at || nowISO(),
+                                                },
+                                        };
+                                }
+                                return patch;
+                        });
+
+                        const previewTasks = normalizedPatches
+                                .filter((patch) => patch.type === 'task_add' && patch.details)
+                                .map((patch) => patch.details);
+
+                        if (previewTasks.length === 0) {
+                                const updated = applyPatch(baseData, normalizedPatches);
+                                updateActiveProjectData(updated);
+                                setPendingTaskCreation(null);
+                                if (typeof onNoNewTasksApplied === 'function') {
+                                        onNoNewTasksApplied();
+                                }
+                                return { previewCount: 0 };
+                        }
+
+                        setPendingTaskCreation({
+                                baseData,
+                                patches: normalizedPatches,
+                                previewTasks,
+                                source,
+                        });
+
+                        return { previewCount: previewTasks.length };
+                },
+                [updateActiveProjectData],
+        );
+
         const handleWorldInfoAbort = useCallback(() => {
                 dispatchProjectFlow(PROJECT_FLOW_EVENTS.CANCEL_ABORT);
                 if (preResetSnapshot) {
@@ -364,6 +414,109 @@ export default function App() {
                 setIntentNotice,
         ]);
 
+        const kickoffKanbanAfterWorldInfo = useCallback(
+                async ({ worldPatch, entryContext }) => {
+                        const baseBoard = worldPatch ? applyWorldPatch(clone(data), worldPatch) : clone(data);
+                        const worldHistory = (chatLogsRef.current.world || [])
+                                .map((message) => `[${message.role}]: ${message.text}`)
+                                .join('\n');
+                        const friendlyWorldHistory = worldHistory || '（本次配置之前没有对话记录）';
+
+                        const introPrefix = (() => {
+                                if (entryContext?.source === 'classifier:new_project') {
+                                        return '系统：已根据你的请求启动全新项目，并完成世界信息初始化。';
+                                }
+                                if (entryContext?.source === 'ai_task_follow_up') {
+                                        return '系统：AI 新增任务后已补充世界信息，现在回到看板界面。';
+                                }
+                                if (entryContext?.source === 'manualEntry') {
+                                        return '系统：世界信息更新完成。';
+                                }
+                                return '系统：世界信息配置流程结束。';
+                        })();
+
+                        const kickoffMessage = {
+                                role: 'system',
+                                text: `${introPrefix}请确认是否需要我帮忙规划初始任务，或自行安排看板。`,
+                                time: new Date().toLocaleTimeString(),
+                        };
+
+                        await new Promise((resolve) => setTimeout(resolve, 0));
+                        appendChat(kickoffMessage, APP_MODES.KANBAN);
+
+                        if (!apiKey) {
+                                setMessage({
+                                        title: '需要手动继续',
+                                        body: '世界信息已更新，但尚未配置 API Key。请手动与看板 AI 对话或完成 API Key 配置后再试。',
+                                        type: 'info',
+                                });
+                                return;
+                        }
+
+                        setIsAiThinking(true);
+
+                        try {
+                                const prompt = `
+                                        【世界信息 World Info】:
+                                        ${JSON.stringify(baseBoard.worldInfo || {}, null, 2)}
+                                        ---
+                                        【世界信息配置对话记录】:
+                                        ${friendlyWorldHistory}
+                                        ---
+                                        【当前看板状态】:
+                                        ${JSON.stringify(baseBoard, null, 2)}
+                                        ---
+                                        现在世界信息已更新，请你执行以下要求：
+                                        1. 以专业且亲切的语气欢迎用户回到看板，并确认是否需要由你来草拟初始看板，或由用户手动创建任务。
+                                        2. 简要复述世界信息中的项目目标、里程碑或模块信息，提醒用户模块列表（moduleList）可用于标记并行的任务块。
+                                        3. 本回合请不要主动修改看板，也不要新增任务。请让 patch_instructions 返回一个空数组。
+                                        4. 提醒用户：只有在用户明确要求时，才会进入自动拆分任务流程。
+                                        5. 如果用户提到希望查看旧项目或切换项目，请礼貌说明需要通过轻量判定流程触发。
+                                        6. ai_response 面向用户，保持中英混合友好语气；patch_instructions 若为空，请返回 []。
+                                        `;
+
+                                const kickoffResponse = await generatePatch(apiKey, APP_MODES.KANBAN, prompt);
+
+                                appendChat(
+                                        {
+                                                role: 'ai',
+                                                text: kickoffResponse.ai_response || '（AI 未返回欢迎语）',
+                                                time: new Date().toLocaleTimeString(),
+                                        },
+                                        APP_MODES.KANBAN,
+                                );
+
+                                processKanbanPatchResponse({
+                                        baseData: baseBoard,
+                                        patchInstructions: kickoffResponse.patch_instructions,
+                                        source: 'world_info_kickoff',
+                                        onNoNewTasksApplied: () => {
+                                                if (
+                                                        Array.isArray(kickoffResponse.patch_instructions) &&
+                                                        kickoffResponse.patch_instructions.length > 0
+                                                ) {
+                                                        setMessage({
+                                                                title: 'AI 调整已同步',
+                                                                body: '看板 AI 在欢迎流程中返回了结构化调整，已自动应用。',
+                                                                type: 'info',
+                                                        });
+                                                }
+                                        },
+                                });
+                        } catch (error) {
+                                console.error('[CONSOLE_ERROR] Kanban kickoff failed:', error);
+                                setMessage({
+                                        title: '看板初始化失败',
+                                        body: '尝试让看板 AI 接管新项目时出错，请手动发送指令或稍后再试。',
+                                        type: 'error',
+                                });
+                        } finally {
+                                setIsAiThinking(false);
+                        }
+                },
+                [apiKey, appendChat, chatLogsRef, data, processKanbanPatchResponse, setMessage],
+        );
+
         const handleWorldInfoComplete = useCallback(
                 (result) => {
                         dispatchProjectFlow(
@@ -389,15 +542,22 @@ export default function App() {
                         setAbortRequestContext(null);
                         setIntentNotice(null);
                         dispatchProjectFlow(PROJECT_FLOW_EVENTS.RETURN_TO_KANBAN);
+
+                        kickoffKanbanAfterWorldInfo({
+                                worldPatch: result?.worldPatch,
+                                entryContext: worldInfoEntryContext,
+                        });
                 },
                 [
                         dispatchProjectFlow,
+                        kickoffKanbanAfterWorldInfo,
                         setAppMode,
                         setMessage,
                         setKanbanChatLog,
                         setWorldInfoEntryContext,
                         setAbortRequestContext,
                         setIntentNotice,
+                        worldInfoEntryContext,
                 ],
         );
 
@@ -620,37 +780,21 @@ export default function App() {
 
                         const patches = parsedResponse.patch_instructions;
                         if (Array.isArray(patches) && patches.length > 0) {
-                                const normalizedPatches = patches.map((patch) => {
-                                        if (patch?.type === 'task_add' && patch.details) {
-                                                return {
-                                                        ...patch,
-                                                        details: {
-                                                                ...patch.details,
-                                                                id:
-                                                                        patch.details.id ||
-                                                                        `t-${Math.random().toString(36).slice(2, 8)}`,
-                                                                status: patch.details.status || 'To Do',
-                                                                created_at: patch.details.created_at || nowISO(),
-                                                        },
-                                                };
-                                        }
-                                        return patch;
-                                });
-
-                                const deferredPatches = normalizedPatches.filter((patch) => patch.type !== 'task_add');
-                                const baseData = clone(data);
-                                const previewTasks = normalizedPatches
-                                        .filter((patch) => patch.type === 'task_add' && patch.details)
-                                        .map((patch) => patch.details);
-
-                                setPendingTaskCreation({
-                                        baseData,
-                                        patches: deferredPatches,
-                                        previewTasks,
-                                });
-                        } else {
-                                setPendingTaskCreation(null);
-                        }
+                        processKanbanPatchResponse({
+                                baseData: clone(data),
+                                patchInstructions: patches,
+                                source: 'kanban_chat',
+                                onNoNewTasksApplied: () => {
+                                        setMessage({
+                                                title: 'AI 调整已同步',
+                                                body: '已根据 AI 建议更新当前看板（未新增任务）。',
+                                                type: 'success',
+                                        });
+                                },
+                        });
+                } else {
+                        setPendingTaskCreation(null);
+                }
                 } catch (error) {
                         console.error('[CONSOLE_ERROR] AI API Error:', error);
                         const errorBody = error.message.includes('Authentication Failed')
@@ -666,7 +810,7 @@ export default function App() {
 
         function handleConfirmAiTaskAdds() {
                 if (!pendingTaskCreation) return;
-                const { baseData, patches, previewTasks = [] } = pendingTaskCreation;
+                const { baseData, patches, previewTasks = [], source } = pendingTaskCreation;
                 const dataWithNewTasks = applyPatch(baseData, patches);
                 updateActiveProjectData(dataWithNewTasks);
                 setPendingTaskCreation(null);
@@ -687,8 +831,11 @@ export default function App() {
                                 },
                                 APP_MODES.WORLD_INFO_SETUP,
                         );
+                        enterWorldInfoSetup({
+                                source: source || 'ai_task_follow_up',
+                                previewCount: previewTasks.length,
+                        });
                 }
-                enterWorldInfoSetup({ source: 'ai_task_follow_up', previewCount: previewTasks.length });
         }
 
         function handleCancelAiTaskAdds() {
