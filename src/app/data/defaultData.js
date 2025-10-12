@@ -1,0 +1,127 @@
+/**
+ * File Overview · 文件说明
+ * -----------------------------------------------------------------------------
+ * Completed / 已完成:
+ * - 定义应用的默认世界信息、看板结构、成员列表、示例任务和事件，为首次加载或数据缺失提供兜底。
+ * - 默认任务涵盖不同模块、等级与依赖，便于演示度量计算与 AI 补丁的基础上下文。
+ *
+ * Implementation Notes / 实现方式:
+ * - 通过静态对象提供中英混合示例文案，并包含关键日期、成员角色等结构化字段。
+ * - 与 `normaliseProjectData` 配合，确保在缺少任何字段时能安全回落到这些默认值。
+ *
+ * Pending / 未完成:
+ * - 当前仅提供单一模板，尚未针对多项目或多行业配置提供多套预设。
+ * - 缺少国际化资源绑定以及虚拟时间轴的初始示例。
+ *
+ * Next Steps / 后续计划:
+ * - 引入模板选择机制，根据项目类型加载不同默认数据。
+ * - 在世界信息中添加结构化提示（如风险、依赖图），帮助 AI 更快建立上下文。
+ */
+export const DEFAULT_DATA = {
+        worldInfo: {
+                projectName: '实习项目看板',
+                projectGoal: '完成五个模块的学习、报告和最终的结业展示 (Abschlusspräsentation)。',
+                keyDeadline: '2025-12-31T23:59:59.000Z',
+                moduleList: ['WS', 'IIOT', 'EMS', 'TT', 'GET'],
+                memberList: [
+                        { id: 'A', name: 'A', role: '报告撰写' },
+                        { id: 'B', name: 'B', role: '报告撰写' },
+                        { id: 'C', name: 'C', role: '预习与资料整理' },
+                ],
+        },
+        board: {
+                name: '实习项目看板',
+                created_at: '2025-10-06',
+                last_update: '2025-10-13',
+                columns: [
+                        { id: 'todo', name: 'To Do', order: 1 },
+                        { id: 'doing', name: 'In Progress', order: 2, wip_limit: 10 },
+                        { id: 'review', name: 'Review', order: 3 },
+                        { id: 'done', name: 'Done', order: 4 },
+                ],
+        },
+        members: [
+                { id: 'A', name: 'A', role: '报告撰写' },
+                { id: 'B', name: 'B', role: '报告撰写' },
+                { id: 'C', name: 'C', role: '预习与资料整理' },
+        ],
+        tasks: [
+                {
+                        id: 't-001',
+                        module: 'IIOT',
+                        title: 'IIOT 第一次课',
+                        status: 'Done',
+                        owner: ['A', 'B', 'C'],
+                        created_at: '2025-10-06T09:00:00.000Z',
+                        finished_at: '2025-10-08T10:00:00.000Z',
+                        notes: '已完成',
+                        level: 'Task',
+                        depends_on: [],
+                },
+                {
+                        id: 't-002',
+                        module: 'TT',
+                        title: 'TT 第一次课 报告撰写',
+                        status: 'In Progress',
+                        owner: ['A', 'B'],
+                        created_at: '2025-10-13T08:00:00.000Z',
+                        started_at: '2025-10-13T12:00:00.000Z',
+                        due_at: '2025-10-20T23:59:59.000Z',
+                        notes: '报告进行中',
+                        level: 'Story',
+                        depends_on: ['t-003'],
+                },
+                {
+                        id: 't-003',
+                        module: 'TT',
+                        title: 'TT 预习整理',
+                        status: 'In Progress',
+                        owner: ['C'],
+                        created_at: '2025-10-13T08:00:00.000Z',
+                        started_at: '2025-10-13T13:00:00.000Z',
+                        due_at: '2025-10-20T23:59:59.000Z',
+                        level: 'Task',
+                        depends_on: [],
+                },
+                {
+                        id: 't-004',
+                        module: 'GET',
+                        title: 'GET 第一次课 预习',
+                        status: 'To Do',
+                        owner: ['C'],
+                        created_at: '2025-10-13T09:00:00.000Z',
+                        planned_start: '2025-10-14T09:00:00.000Z',
+                        level: 'Task',
+                        depends_on: [],
+                },
+                {
+                        id: 't-005',
+                        module: 'WS',
+                        title: 'WS 报告 等待结果',
+                        status: 'Review',
+                        owner: ['A', 'B', 'C'],
+                        created_at: '2025-10-06T10:00:00.000Z',
+                        submitted_at: '2025-10-10T16:00:00.000Z',
+                        block_reason: '等待教授回复',
+                        notes: '已上交，等待教授回复',
+                        level: 'Story',
+                        depends_on: [],
+                },
+                {
+                        id: 't-006',
+                        module: 'EMS',
+                        title: 'EMS 自学准备',
+                        status: 'In Progress',
+                        owner: ['A', 'B', 'C'],
+                        created_at: '2025-10-06T09:30:00:00.000Z',
+                        planned_meeting: '2025-10-27T10:00:00.000Z',
+                        level: 'Epic',
+                        depends_on: ['t-005'],
+                },
+        ],
+        events: [
+                { id: 'e-1', time: '2025-10-08T10:00:00.000Z', type: 'complete', task_id: 't-001', user: 'A' },
+                { id: 'e-2', time: '2025-10-13T12:00:00.000Z', type: 'move', task_id: 't-002', from: 'To Do', to: 'In Progress', user: 'B' },
+                { id: 'e-3', time: '2025-10-13T13:00:00.000Z', type: 'move', task_id: 't-003', from: 'To Do', to: 'In Progress', user: 'C' },
+        ],
+};
