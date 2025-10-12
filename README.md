@@ -1,70 +1,28 @@
-# Getting Started with Create React App
+# AI Kanban Refactor Roadmap
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This repository contains an experimental AI-assisted Kanban board. The current priority is to untangle the large `App.js` file so that the React entry point only coordinates state and rendering, while dedicated modules encapsulate prompts, analytics, and storage concerns.
 
-## Available Scripts
+## Why restructure `App.js`?
+* Improve readability by separating configuration, AI prompt schemas, metrics, and UI.
+* Allow future iterations (e.g. richer prompt orchestration, task dependency reasoning) to evolve independently.
+* Reduce merge conflicts by keeping responsibilities isolated.
 
-In the project directory, you can run:
+## Step-by-step plan
+1. **Create foundational modules**
+   * Extract utility helpers (date formatting, cloning, etc.).
+   * Move static constants such as app modes, column colours, and task point weights.
+   * Publish default board data from a dedicated data module.
+2. **Isolate AI integration**
+   * Relocate DeepSeek configuration, schema definitions, and the `generatePatch` service into a `/services` directory.
+   * Prepare a future `/prompts` folder so that different prompt versions can coexist without touching the entry point.
+3. **Split analytic logic**
+   * Place metrics, insights, and chart data builders into `/logic` files so that task-level calculations can be unit tested later.
+4. **Modularise UI components**
+   * Keep pure presentational components under `src/components` and move the world info setup wizard into its own file.
+   * Ensure `App.js` only wires state, handlers, and props.
+5. **Progressive enhancements** (future work)
+   * Add prompt variants per task level (Epic/Story/Task) once the prompt module is ready.
+   * Introduce dependency resolution helpers to score and visualise blockers.
+   * Layer in scenario-based simulations (e.g. WIP limit tuning) without modifying `App.js`.
 
-### `npm start`
-
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
-
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
-
-### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
-
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+This plan turns `App.js` into a lean entry point and lays the groundwork for future AI prompt experiments.
