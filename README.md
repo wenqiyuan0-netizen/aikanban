@@ -38,6 +38,47 @@ This repository hosts an experimental AI-assisted Kanban board. The current prio
    - 制作全局样式指南，优化卡片间距、阴影、交互动画。
    - 借助 Figma 打磨设计稿，再实施组件层面的调整，完整周期约 3~4 天。
 
+## Project reset & multi-board orchestration · 新旧项目切换与多看板调度
+
+> Goal：在用户放弃当前项目、转而启动全新计划时，提供清晰的确认—配置—回到看板的三段式体验，同时为旧项目的后续唤醒做好数据准备。
+
+### Target flow · 目标流程
+
+1. **Abort confirmation 废弃确认**  
+   - 看板 Agent 监听到“废弃当前项目 / 开启新项目”等意图后，向前端发出结构化指令。  
+   - 前端弹窗展示风险提示（历史记录将归档但不会丢失），用户确认后进入下一步。
+2. **World-info reset 全局信息重置**  
+   - 切换到「世界信息配置」界面，且不携带旧项目任何上下文。  
+   - 世界信息 Agent 根据 prompt 引导用户：若已有完整方案则快速填充；若信息不足则进入头脑风暴对话，直至结构化字段（目标、里程碑、截止时间、依赖等）被填满。  
+   - 所有对话被写入“新项目配置”独立日志，旧项目日志仅归档不参与此次会话。
+3. **Commit & handoff 提交与交接**  
+   - 用户确认配置完成后，世界信息 Agent 输出：
+     - 结构化的项目摘要（供看板 Agent 作为初始 prompt）。  
+     - 可选的附件或聊天记录引用。  
+   - 前端触发状态机：清空看板聊天面板、初始化列/任务（可空白或根据 Agent 建议创建样板），记录“虚拟时间同步”标记，允许用户后续补录历史事件。
+4. **Kanban re-entry 回到看板**  
+   - 看板 Agent 读取刚刚生成的项目摘要与聊天上下文，以此询问用户是「自行创建第一批任务」还是「由 AI 建议初始看板」。  
+   - 若用户请求 AI 规划，则在本地生成草稿任务列表并再次走确认弹窗。
+
+### Data retention strategy · 数据保留策略
+
+- **Current project 当前项目**：在“废弃”动作后将任务、指标、聊天记录转存至 `archivedProjects`（本地索引），但不再主动推送给任何 Agent。  
+- **Archived projects 历史项目**：保留完整结构（世界信息、看板状态、聊天记录）。后续可通过看板 Agent 的多轮判定「旧项目 / 当前项目」进行唤醒：
+  1. 第一次请求仅返回判定 JSON（旧项目名或“仍属当前项目”）。  
+  2. 若选择旧项目，前端再发送二次请求携带旧项目所有资料，Agent 负责挑选正确的项目并确认。  
+  3. 非当前路径时，这些内部判定信息不暴露给用户，只反馈必要的提示。
+- **Virtual timeline 虚拟时间轴**：保留字段供看板 Agent 在新项目启动时重写，用于对齐历史叙事或导入用户口述的先前事件。
+
+### Next implementation steps · 下一步实现建议
+
+1. **State diagram 状态图**：梳理状态机（`KANBAN_ACTIVE → CONFIRM_ABORT → WORLD_INFO_RESET → KANBAN_REBOOT`）。  
+2. **Agent contract 协议定义**：为看板/世界信息 Agent 设计结构化指令（JSON schema），规范“废弃确认”、“项目摘要输出”、“旧项目索引查询”等交互。  
+3. **Storage layering 存储分层**：扩展本地存储模块，添加 `archivedProjects`、`currentProjectId`、`worldInfoSessions` 等命名空间。  
+4. **UI integration UI 接入**：实现弹窗、提示条、空状态界面，确保双聊天窗互不干扰并按项目隔离。  
+5. **Telemetry & QA 观测与验收**：为关键节点埋点（确认点击、摘要生成、旧项目唤醒），并编写端到端脚本验证状态清空与数据迁移是否符合预期。
+
+通过上述步骤，既能保障“新项目”流程干净利落，又为未来的旧项目恢复功能预留完整数据链路。
+
 ## Recommended workflow 建议工作流
 
 1. **Confirm localisation scope 明确本地化范围**：先列出所有需要翻译的界面 & 文案，生成词条清单。
