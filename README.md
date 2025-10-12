@@ -12,7 +12,7 @@ This repository contains an AI-assisted project management workspace that combin
 
 | Area | Status | Notes |
 | ---- | ------ | ----- |
-| React entry point refactor | ✅ | `App.js` 已拆分为 orchestrator + 模块化子组件。|
+| React entry point refactor | ✅ | `App.js` 现仅渲染 `AppContainer`，详细逻辑迁移至 `src/app/containers/AppContainer.js` 并附带逻辑审计注释。|
 | Workspace persistence | ✅ | 提供多项目数据结构骨架，支持本地存储读写与快照。|
 | Project reset scaffolding | ✅ | 引入 `projectFlow` 状态机、确认弹窗钩子与世界信息界面切换逻辑。|
 | Lightweight classifier gating | 🟡 | 现在在看板输入前触发判定并记录 `intentLog`，旧项目分支仍待对接 UI。|
@@ -34,6 +34,15 @@ This repository contains an AI-assisted project management workspace that combin
 - ♻️ **任务删除回退尚未实现**：增量补丁目前支持新增/更新，但缺少安全的删除与撤销流程，后续在扩展 Prompt 时需加入回滚策略与本地回收站。
 - 🗓️ **Calendar view 未实现**：UI 预留入口但尚无日历渲染，需要在后续迭代中补充。
 - 🚨 **Retroactive history conflicts（历史事件冲突风险）**：当看板 Agent 通过 `event_add` 或修改任务时间戳来“补写过去”时，存在与既有事件顺序矛盾的风险（例如在任务标记为 `Done` 之后，又插入该任务的“开始”事件）。目前已通过更严格的 Prompt 约束其在修改历史前必须验证时间线一致性，如需真正重写历史必须向用户确认；后续仍需加入自动回归测试与冲突检测。
+
+## Logic audit annotations · 逻辑审计标注
+
+- `src/app/containers/AppContainer.js` · `processKanbanPatchResponse`：目前仅在检测到新增任务时才触发世界信息补写。若后续允许无新增任务的补写流程，需要在此处放宽条件并更新 UI 提示。
+- `AppContainer` · `handleResetConfirm`：重置项目时直接将世界信息清空为 `{}`，假设下一步一定重新填写。若未来支持保留部分旧信息，需要拓展状态机分支。
+- `AppContainer` · `handleDeleteTaskConfirm`：删除任务暂不支持撤销/回收站功能；后续在 Prompt 与 UI 中需新增安全回退策略。
+- `AppContainer` · `applyLaneFieldUpdate`：跨泳道拖拽仅同步单一字段，对多责任人复制逻辑需在后续版本中补强。
+- `AppContainer` · `handleConfirmAiTaskAdds`：AI 新增任务后强制跳转世界信息配置，若要支持“直接接受但暂不补写”，需新增用户确认分支。
+- `AppContainer` · `handleWorldInfoAbort`：当前只恢复一次性的 `preResetSnapshot`，需与正式的归档/恢复机制联动。
 
 ## Multi-agent focus · 多 Agent 协同重点
 
@@ -201,7 +210,7 @@ flowchart TD
    - 重点功能：旧项目列表与具体看板切换、合并流程的本地关键词检测。
 
 5. **i18n & UI polish 多语言与美化**
-   - 预计调整文件：`src/index.js` / `src/App.js`（引入 `i18next`）、`src/components/layout/AppHeader.js`（语言切换）、`src/app/constants/colors.js`（传统色映射规则）、`src/app/logic/charts.js`（燃尽图/累积流图美化）。
+   - 预计调整文件：`src/index.js` / `src/App.js` / `src/app/containers/AppContainer.js`（引入 `i18next`）、`src/components/layout/AppHeader.js`（语言切换）、`src/app/constants/colors.js`（传统色映射规则）、`src/app/logic/charts.js`（燃尽图/累积流图美化）。
    - 重点功能：语言资源包加载、主题色校正、图表样式统一。
 
 > 在执行每一阶段开发前，将再次核对本清单并视情况增补文件位置，以保持 README 与实际改动同步。
@@ -252,6 +261,7 @@ flowchart TD
 
 ## Build log · 构建记录
 
+- 2025-06-01 · Step 7：抽离 `AppContainer` 以保持入口轻量，并在核心分支加入逻辑审计注释/README 对照清单。
 - 2025-05-31 · Step 6：修复跨泳道拖拽只更新列状态的问题，并将世界信息成员补丁改为增量合并，避免误删已有成员。
 - 2025-05-30 · Step 5：更新 Prompt 管理计划，梳理向桌面付费套件演进所需的账号、实时协作、论坛、计费等技术路线。
 - 2025-05-29 · Step 4：接入轻量判定 Agent，记录判定日志，按意图触发新项目确认与旧项目提示，并在 UI 显示意图 Banner。
