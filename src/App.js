@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AreaChart, XAxis, YAxis, CartesianGrid, Tooltip, Area, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import {
         Column,
@@ -24,6 +24,13 @@ import { loadData, saveData } from './app/storage/localStorage';
 import { clone } from './app/utils/clone';
 import { nowISO, fmt, toUtcIso } from './app/utils/dateUtils';
 import { generatePatch } from './app/services/aiService';
+
+const INITIAL_KANBAN_CHAT = [
+        {
+                role: 'system',
+                text: 'AI-Agent 已连接，已升级为【增量补丁模式】。**Blocked 状态已移除**，请使用 `block_reason` 属性来标记任务阻塞。',
+        },
+];
 
 /**
  * AI-Kanban 一体化网页（聊天 + 看板）
@@ -51,18 +58,19 @@ export default function App() {
         const [apiKey] = useState(initialApiKey);
         const [isAiThinking, setIsAiThinking] = useState(false);
 
-        const [chatLogs, setChatLogs] = useState({
-                kanban: [
-                        {
-                                role: 'system',
-                                text: 'AI-Agent 已连接，已升级为【增量补丁模式】。**Blocked 状态已移除**，请使用 `block_reason` 属性来标记任务阻塞。',
-                        },
-                ],
-                world: [],
-        });
+        const [kanbanChatLog, setKanbanChatLog] = useState(INITIAL_KANBAN_CHAT);
+        const [worldChatLog, setWorldChatLog] = useState([]);
+        const chatLogsRef = useRef({ kanban: INITIAL_KANBAN_CHAT, world: [] });
         const inputRef = useRef(null);
 
         const worldInfo = data.worldInfo;
+
+        useEffect(() => {
+                chatLogsRef.current = {
+                        kanban: kanbanChatLog,
+                        world: worldChatLog,
+                };
+        }, [kanbanChatLog, worldChatLog]);
 
         const [pendingTaskCreation, setPendingTaskCreation] = useState(null);
 
@@ -209,7 +217,7 @@ export default function App() {
         }
 
         function exportChatLog() {
-                exportFile('chat_log.json', chatLogs);
+                exportFile('chat_log.json', chatLogsRef.current);
         }
 
         function resetAll() {
@@ -334,17 +342,24 @@ export default function App() {
                 setIsAiThinking(true);
 
                 try {
-                        const kanbanChat = chatLogs.kanban || [];
+                        const kanbanChat = chatLogsRef.current.kanban || [];
+                        const worldChat = chatLogsRef.current.world || [];
                         const insights = buildInsights(data);
                         const fullBoardState = clone(data);
                         const world = fullBoardState.worldInfo || {};
                         const chatHistory = [...kanbanChat, userMessage]
                                 .map((m) => `[${m.role}]: ${m.text}`)
                                 .join('\n');
+                        const worldHistory = worldChat.length
+                                ? worldChat.map((m) => `[${m.role}]: ${m.text}`).join('\n')
+                                : '（暂无世界信息配置对话记录）';
 
                         const fullPrompt = `
                                 【世界信息 World Info】: 这描述了项目的基本规则、目标和背景。
                                 ${JSON.stringify(world, null, 2)}
+                                ---
+                                【世界信息配置对话记录】:
+                                ${worldHistory}
                                 ---
                                 历史对话:\n${chatHistory}\n
                                 ---
@@ -438,21 +453,39 @@ export default function App() {
                 }
         }
 
-        function appendChat(message, mode = APP_MODES.KANBAN) {
-                const channel = mode === APP_MODES.WORLD_INFO_SETUP ? 'world' : 'kanban';
-                setChatLogs((current) => ({
-                        ...current,
-                        [channel]: [...(current[channel] || []), message],
-                }));
+        const appendChat = useCallback((message, mode = APP_MODES.KANBAN) => {
+                if (mode === APP_MODES.WORLD_INFO_SETUP) {
+                        setWorldChatLog((current) => {
+                                const next = [...current, message];
+                                chatLogsRef.current = {
+                                        ...chatLogsRef.current,
+                                        world: next,
+                                };
+                                return next;
+                        });
+                } else {
+                        setKanbanChatLog((current) => {
+                                const next = [...current, message];
+                                chatLogsRef.current = {
+                                        ...chatLogsRef.current,
+                                        kanban: next,
+                                };
+                                return next;
+                        });
+                }
                 setTimeout(() => {
-                        const chatWindow = document.querySelector('.flex-1.p-4.overflow-y-auto');
+                        const selector =
+                                mode === APP_MODES.WORLD_INFO_SETUP
+                                        ? '.world-chat-window'
+                                        : '.kanban-chat-window';
+                        const chatWindow = document.querySelector(selector);
                         if (chatWindow) chatWindow.scrollTop = chatWindow.scrollHeight;
                 }, 50);
-        }
+        }, []);
 
         function handleConfirmAiTaskAdds() {
                 if (!pendingTaskCreation) return;
-                const { baseData, patches } = pendingTaskCreation;
+                const { baseData, patches, previewTasks = [] } = pendingTaskCreation;
                 const dataWithNewTasks = applyPatch(baseData, patches);
                 setData(dataWithNewTasks);
                 setPendingTaskCreation(null);
@@ -461,6 +494,19 @@ export default function App() {
                         body: '根据 AI 建议完成新任务创建，请继续在“项目世界信息设置”中补充上下文。',
                         type: 'success',
                 });
+                if (previewTasks.length > 0) {
+                        const summary = previewTasks
+                                .map((task) => `${task.title || '未命名任务'}（${task.level || 'Task'}）`)
+                                .join('，');
+                        appendChat(
+                                {
+                                        role: 'system',
+                                        text: `看板 AI 已新增任务：${summary}。请在世界信息设置中补充这些任务的背景、依赖和优先级。`,
+                                        time: new Date().toLocaleTimeString(),
+                                },
+                                APP_MODES.WORLD_INFO_SETUP,
+                        );
+                }
                 setAppMode(APP_MODES.WORLD_INFO_SETUP);
         }
 
@@ -528,15 +574,15 @@ export default function App() {
                                                 setIsAiThinking={setIsAiThinking}
                                                 apiKey={apiKey}
                                                 setMessage={setMessage}
-                                                worldChat={chatLogs.world}
+                                                worldChat={worldChatLog}
                                                 appendChat={appendChat}
                                                 inputRef={inputRef}
                                         />
                                 ) : (
                                         <section className='rounded-2xl bg-white border shadow-xl flex flex-col overflow-hidden h-[80vh] md:h-full'>
                                                 <div className='px-4 py-3 border-b text-base font-semibold text-slate-700 bg-gray-50'>AI 对话区（增量 Agent）</div>
-                                                <div className='flex-1 p-4 overflow-y-auto flex flex-col'>
-                                                        {(chatLogs.kanban || []).map((m, i) => (
+                                                <div className='kanban-chat-window flex-1 p-4 overflow-y-auto flex flex-col'>
+                                                        {kanbanChatLog.map((m, i) => (
                                                                 <div key={i} className={`mb-3 p-2 rounded-lg max-w-[90%] ${m.role === 'user' ? 'bg-indigo-50 text-slate-900 self-end ml-auto' : 'bg-gray-100 text-slate-700 self-start mr-auto'}`}>
                                                                         <div className='text-[13px]'>
                                                                                 <span className={`font-bold ${m.role === 'user' ? 'text-indigo-600' : 'text-emerald-600'}`}>

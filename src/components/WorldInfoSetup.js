@@ -25,7 +25,7 @@ export function WorldInfoSetup({
                                 APP_MODES.WORLD_INFO_SETUP,
                         );
                 }
-        }, [worldChat.length, appendChat]);
+        }, [appendChat, worldChat.length]);
 
         async function sendWorldMsg() {
                 const text = (inputRef.current?.value || '').trim();
@@ -90,7 +90,7 @@ export function WorldInfoSetup({
                                         返回看板 (不保存)
                                 </button>
                         </div>
-                        <div className='flex-1 p-4 overflow-y-auto flex flex-col'>
+                        <div className='world-chat-window flex-1 p-4 overflow-y-auto flex flex-col'>
                                 {worldChat.map((message, index) => (
                                         <div
                                                 key={index}
