@@ -1,8 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AreaChart, XAxis, YAxis, CartesianGrid, Tooltip, Area, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
-        Column,
-        Card,
         AddTaskModal,
         MessageBox,
         ResetConfirmModal,
@@ -11,8 +8,12 @@ import {
         AiTaskConfirmModal,
 } from './components/UIComponents';
 import { WorldInfoSetup } from './components/WorldInfoSetup';
+import { AppHeader } from './components/layout/AppHeader';
+import { AppFooter } from './components/layout/AppFooter';
+import { KanbanView } from './components/KanbanView';
+import { EditTaskModal } from './components/EditTaskModal';
 import { APP_MODES } from './app/constants/appModes';
-import { getModuleColor, COLUMN_COLORS, COLUMN_ORDER } from './app/constants/colors';
+import { getModuleColor } from './app/constants/colors';
 import { getTaskPoints } from './app/constants/task';
 import { DEFAULT_DATA } from './app/data/defaultData';
 import { initialApiKey } from './app/config/apiConfig';
@@ -20,37 +21,25 @@ import { computeMetrics, buildInsights } from './app/logic/metrics';
 import { calculateBurndownData, calculateCfdData } from './app/logic/charts';
 import { applyPatch, enforceLinearWorkflow } from './app/logic/patches';
 import { applyWorldPatch } from './app/logic/worldInfo';
-import { loadWorkspace, saveWorkspace } from './app/storage/localStorage';
+import { generatePatch } from './app/services/aiService';
 import { clone } from './app/utils/clone';
 import { nowISO, fmt, toUtcIso } from './app/utils/dateUtils';
-import { generatePatch } from './app/services/aiService';
-
-const INITIAL_KANBAN_CHAT = [
-        {
-                role: 'system',
-                text: 'AI-Agent 已连接，已升级为【增量补丁模式】。**Blocked 状态已移除**，请使用 `block_reason` 属性来标记任务阻塞。',
-        },
-];
-
-/**
- * AI-Kanban 一体化网页（聊天 + 看板）
- * - 状态：已引入【appMode】状态机：'kanban' (看板操作) 和 'worldInfoSetup' (引导设置模式)。
- * - 智能洞察：新增【任务分级 (Epic/Story/Task)】、【WIP 时长预警】、【任务依赖关系】及【依赖阻塞预警】。
- * - Agent升级：发送完整看板数据，Agent 以“专业看板经理”身份决策，并接收【世界信息】。
- * - 核心：在 WorldInfoSetup 模式下，Agent 专注于【引导用户补全项目元数据】。
- * - **更新**：所有 size 相关的指标和图表计算均基于【任务点数 (Story Points)】。
- * * --- WARNING: API已切换至 DEEPSEEK (兼容OpenAI) ---
- */
+import { useWorkspace } from './app/hooks/useWorkspace';
+import { INITIAL_KANBAN_CHAT } from './app/constants/chat';
 
 export default function App() {
-        const [workspace, setWorkspace] = useState(() => loadWorkspace());
-        const activeProjectId = workspace.currentProjectId;
-        const activeProject = workspace.projects[activeProjectId] || {
-                id: activeProjectId,
-                data: clone(DEFAULT_DATA),
-                chat: { kanban: INITIAL_KANBAN_CHAT, world: [] },
-        };
-        const data = activeProject.data;
+        const {
+                data,
+                worldInfo,
+                kanbanChatLog,
+                setKanbanChatLog,
+                worldChatLog,
+                setWorldChatLog,
+                chatLogsRef,
+                appendChat,
+                updateActiveProjectData,
+        } = useWorkspace();
+
         const [dragId, setDragId] = useState(null);
         const [edit, setEdit] = useState(null);
         const [view, setView] = useState('kanban');
@@ -61,73 +50,12 @@ export default function App() {
         const [showAddTaskModal, setShowAddTaskModal] = useState(false);
         const [message, setMessage] = useState(null);
         const [taskToDelete, setTaskToDelete] = useState(null);
+        const [pendingTaskCreation, setPendingTaskCreation] = useState(null);
 
         const [apiKey] = useState(initialApiKey);
         const [isAiThinking, setIsAiThinking] = useState(false);
 
-        const [kanbanChatLog, setKanbanChatLog] = useState(
-                activeProject.chat?.kanban?.length ? activeProject.chat.kanban : INITIAL_KANBAN_CHAT,
-        );
-        const [worldChatLog, setWorldChatLog] = useState(activeProject.chat?.world || []);
-        const chatLogsRef = useRef({ kanban: kanbanChatLog, world: worldChatLog });
         const inputRef = useRef(null);
-
-        const worldInfo = data.worldInfo;
-
-        useEffect(() => {
-                chatLogsRef.current = {
-                        kanban: kanbanChatLog,
-                        world: worldChatLog,
-                };
-        }, [kanbanChatLog, worldChatLog]);
-
-        useEffect(() => {
-                setWorkspace((previous) => {
-                        const project = previous.projects[previous.currentProjectId];
-                        if (!project) return previous;
-                        if (project.chat?.kanban === kanbanChatLog && project.chat?.world === worldChatLog) {
-                                return previous;
-                        }
-                        const nextWorkspace = clone(previous);
-                        const nextProject = nextWorkspace.projects[nextWorkspace.currentProjectId];
-                        nextProject.chat = {
-                                kanban: kanbanChatLog,
-                                world: worldChatLog,
-                        };
-                        nextProject.updatedAt = nowISO();
-                        return nextWorkspace;
-                });
-        }, [kanbanChatLog, worldChatLog]);
-
-        const [pendingTaskCreation, setPendingTaskCreation] = useState(null);
-
-        useEffect(() => {
-                saveWorkspace(workspace);
-        }, [workspace]);
-
-        const updateActiveProjectData = useCallback(
-                (updater) => {
-                        setWorkspace((previous) => {
-                                const project = previous.projects[previous.currentProjectId];
-                                if (!project) return previous;
-
-                                const baseData = project.data;
-                                const nextData = typeof updater === 'function' ? updater(clone(baseData)) : updater;
-                                if (!nextData) return previous;
-
-                                const nextWorkspace = clone(previous);
-                                const nextProject = nextWorkspace.projects[nextWorkspace.currentProjectId];
-                                nextProject.data = nextData;
-                                nextProject.updatedAt = nowISO();
-                                return nextWorkspace;
-                        });
-                },
-                [],
-        );
-
-        const setWorldInfo = (newWorldPatch) => {
-                updateActiveProjectData((previous) => applyWorldPatch(previous, newWorldPatch));
-        };
 
         const columns = useMemo(() => {
                 const cols = (data.board?.columns || [])
@@ -144,7 +72,7 @@ export default function App() {
                           ];
         }, [data.board]);
 
-        const byStatus = (status) => (data.tasks || []).filter((task) => task.status === status);
+        const byStatus = useCallback((status) => (data.tasks || []).filter((task) => task.status === status), [data.tasks]);
         const metrics = useMemo(() => computeMetrics(data), [data]);
         const cfdData = useMemo(() => calculateCfdData(data), [data]);
         const burndownData = useMemo(() => calculateBurndownData(data), [data]);
@@ -158,6 +86,7 @@ export default function App() {
                 if (!task) return;
                 const fromStatus = task.status;
                 const toStatus = status;
+
                 if (fromStatus === toStatus) return;
 
                 try {
@@ -270,6 +199,13 @@ export default function App() {
         function resetAll() {
                 setShowResetConfirm(true);
         }
+
+        const setWorldInfo = useCallback(
+                (newWorldPatch) => {
+                        updateActiveProjectData((previous) => applyWorldPatch(previous, newWorldPatch));
+                },
+                [updateActiveProjectData],
+        );
 
         function handleResetConfirm() {
                 updateActiveProjectData(clone(DEFAULT_DATA));
@@ -438,56 +374,26 @@ export default function App() {
                                                                 ...patch.details,
                                                                 id:
                                                                         patch.details.id ||
-                                                                        `t-${Math.random().toString(36).slice(2, 8)}${Date.now()}`,
+                                                                        `t-${Math.random().toString(36).slice(2, 8)}`,
+                                                                status: patch.details.status || 'To Do',
+                                                                created_at: patch.details.created_at || nowISO(),
                                                         },
                                                 };
                                         }
                                         return patch;
                                 });
 
-                                const newTaskIds = new Set();
-                                const immediatePatches = [];
-                                const deferredPatches = [];
+                                const deferredPatches = normalizedPatches.filter((patch) => patch.type !== 'task_add');
+                                const baseData = clone(data);
+                                const previewTasks = normalizedPatches
+                                        .filter((patch) => patch.type === 'task_add' && patch.details)
+                                        .map((patch) => patch.details);
 
-                                normalizedPatches.forEach((patch) => {
-                                        if (patch.type === 'task_add' && patch.details?.id) {
-                                                newTaskIds.add(patch.details.id);
-                                                deferredPatches.push(patch);
-                                                return;
-                                        }
-
-                                        if (patch.type === 'task_update' && newTaskIds.has(patch.id)) {
-                                                deferredPatches.push(patch);
-                                                return;
-                                        }
-
-                                        if (patch.type === 'event_add' && newTaskIds.has(patch.details?.task_id)) {
-                                                deferredPatches.push(patch);
-                                                return;
-                                        }
-
-                                        immediatePatches.push(patch);
+                                setPendingTaskCreation({
+                                        baseData,
+                                        patches: deferredPatches,
+                                        previewTasks,
                                 });
-
-                                let baseData = data;
-                                if (immediatePatches.length > 0) {
-                                        baseData = applyPatch(data, immediatePatches);
-                                        updateActiveProjectData(baseData);
-                                }
-
-                                if (deferredPatches.length > 0) {
-                                        const previewTasks = deferredPatches
-                                                .filter((patch) => patch.type === 'task_add' && patch.details)
-                                                .map((patch) => patch.details);
-
-                                        setPendingTaskCreation({
-                                                baseData,
-                                                patches: deferredPatches,
-                                                previewTasks,
-                                        });
-                                } else {
-                                        setPendingTaskCreation(null);
-                                }
                         } else {
                                 setPendingTaskCreation(null);
                         }
@@ -502,35 +408,7 @@ export default function App() {
                 }
         }
 
-        const appendChat = useCallback((message, mode = APP_MODES.KANBAN) => {
-                if (mode === APP_MODES.WORLD_INFO_SETUP) {
-                        setWorldChatLog((current) => {
-                                const next = [...current, message];
-                                chatLogsRef.current = {
-                                        ...chatLogsRef.current,
-                                        world: next,
-                                };
-                                return next;
-                        });
-                } else {
-                        setKanbanChatLog((current) => {
-                                const next = [...current, message];
-                                chatLogsRef.current = {
-                                        ...chatLogsRef.current,
-                                        kanban: next,
-                                };
-                                return next;
-                        });
-                }
-                setTimeout(() => {
-                        const selector =
-                                mode === APP_MODES.WORLD_INFO_SETUP
-                                        ? '.world-chat-window'
-                                        : '.kanban-chat-window';
-                        const chatWindow = document.querySelector(selector);
-                        if (chatWindow) chatWindow.scrollTop = chatWindow.scrollHeight;
-                }, 50);
-        }, []);
+        const handleCardDragStart = useCallback((_, id) => setDragId(id), []);
 
         function handleConfirmAiTaskAdds() {
                 if (!pendingTaskCreation) return;
@@ -570,48 +448,16 @@ export default function App() {
 
         return (
                 <div className='h-screen flex flex-col bg-slate-50 font-sans'>
-                        <header className='shrink-0 bg-white border-b shadow-md'>
-                                <div className='max-w-7xl mx-auto px-4 py-2 flex items-center justify-between'>
-                                        <div className='text-xl font-extrabold text-indigo-700'>AI-Kanban 一体化控制台</div>
-                                        <div className='flex items-center gap-3 text-sm'>
-                                                {appMode === APP_MODES.KANBAN && (
-                                                        <>
-                                                                <label className='text-gray-500 text-xs'>
-                                                                        <input type='file' accept='application/json' onChange={importJSON} className='hidden' id='fileImport' />
-                                                                        <button
-                                                                                onClick={() => document.getElementById('fileImport').click()}
-                                                                                className='px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition'
-                                                                        >
-                                                                                导入 JSON
-                                                                        </button>
-                                                                </label>
-                                                                <button onClick={exportBoard} className='px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition'>
-                                                                        导出看板
-                                                                </button>
-                                                                <button onClick={exportChatLog} className='px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition'>
-                                                                        导出聊天
-                                                                </button>
-                                                                <button
-                                                                        onClick={() => setAppMode(APP_MODES.WORLD_INFO_SETUP)}
-                                                                        className='px-3 py-1.5 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 transition'
-                                                                >
-                                                                        设置项目世界
-                                                                </button>
-                                                                <button onClick={openAddTaskModal} className='px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition'>
-                                                                        + 新任务
-                                                                </button>
-                                                                <button onClick={clearAllTasks} className='px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition'>
-                                                                        清空任务
-                                                                </button>
-                                                                <button onClick={resetAll} className='px-3 py-1.5 rounded-lg bg-rose-900 text-white hover:bg-rose-800 transition'>
-                                                                        重置所有
-                                                                </button>
-                                                        </>
-                                                )}
-                                                {appMode === APP_MODES.WORLD_INFO_SETUP && <div className='text-sm text-purple-600 font-semibold'>项目设置中...</div>}
-                                        </div>
-                                </div>
-                        </header>
+                        <AppHeader
+                                appMode={appMode}
+                                onImportJson={importJSON}
+                                onExportBoard={exportBoard}
+                                onExportChatLog={exportChatLog}
+                                onEnterWorldInfo={() => setAppMode(APP_MODES.WORLD_INFO_SETUP)}
+                                onOpenAddTask={openAddTaskModal}
+                                onClearTasks={clearAllTasks}
+                                onResetAll={resetAll}
+                        />
 
                         <div className='flex-1 max-w-7xl mx-auto w-full grid grid-cols-1 md:grid-cols-3 gap-4 p-4 overflow-auto'>
                                 {appMode === APP_MODES.WORLD_INFO_SETUP ? (
@@ -628,249 +474,38 @@ export default function App() {
                                                 inputRef={inputRef}
                                         />
                                 ) : (
-                                        <section className='rounded-2xl bg-white border shadow-xl flex flex-col overflow-hidden h-[80vh] md:h-full'>
-                                                <div className='px-4 py-3 border-b text-base font-semibold text-slate-700 bg-gray-50'>AI 对话区（增量 Agent）</div>
-                                                <div className='kanban-chat-window flex-1 p-4 overflow-y-auto flex flex-col'>
-                                                        {kanbanChatLog.map((m, i) => (
-                                                                <div key={i} className={`mb-3 p-2 rounded-lg max-w-[90%] ${m.role === 'user' ? 'bg-indigo-50 text-slate-900 self-end ml-auto' : 'bg-gray-100 text-slate-700 self-start mr-auto'}`}>
-                                                                        <div className='text-[13px]'>
-                                                                                <span className={`font-bold ${m.role === 'user' ? 'text-indigo-600' : 'text-emerald-600'}`}>
-                                                                                        {m.role === 'user' ? '你' : 'AI'}：
-                                                                                </span>
-                                                                                {m.text}
-                                                                        </div>
-                                                                        {m.time && <span className='text-[10px] text-gray-400 block mt-0.5'>{m.time}</span>}
-                                                                </div>
-                                                        ))}
-
-                                                        {isAiThinking && (
-                                                                <div className='flex items-center text-sm text-indigo-500 mt-2 p-2 self-start'>
-                                                                        <svg className='animate-spin -ml-1 mr-3 h-5 w-5 text-indigo-500' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
-                                                                                <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
-                                                                                <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
-                                                                        </svg>
-                                                                        AI 正在处理看板更新和智能提醒...
-                                                                </div>
-                                                        )}
-                                                </div>
-                                                <div className='p-3 border-t flex gap-2 bg-gray-50'>
-                                                        <input
-                                                                ref={inputRef}
-                                                                disabled={isAiThinking || !apiKey}
-                                                                className='flex-1 border border-gray-300 rounded-xl px-4 py-2 text-sm disabled:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500'
-                                                                placeholder={isAiThinking ? '请等待 AI 响应...' : !apiKey ? '请先配置 API Key' : '输入你的需求，如：t-003 被外部依赖阻塞'}
-                                                                onKeyDown={(e) => e.key === 'Enter' && sendMsg()}
-                                                        />
-                                                        <button
-                                                                onClick={sendMsg}
-                                                                disabled={isAiThinking || !apiKey}
-                                                                className='px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition disabled:bg-gray-400'
-                                                        >
-                                                                发送
-                                                        </button>
-                                                </div>
-                                        </section>
+                                        <KanbanView
+                                                kanbanChatLog={kanbanChatLog}
+                                                isAiThinking={isAiThinking}
+                                                apiKey={apiKey}
+                                                inputRef={inputRef}
+                                                onSendMessage={sendMsg}
+                                                metrics={metrics}
+                                                view={view}
+                                                onChangeView={setView}
+                                                columns={columns}
+                                                byStatus={byStatus}
+                                                onDropTask={handleDrop}
+                                                onDragStart={handleCardDragStart}
+                                                onEditTask={setEdit}
+                                                getModuleColor={getModuleColor}
+                                                getTaskPoints={getTaskPoints}
+                                                fmt={fmt}
+                                                cfdData={cfdData}
+                                                burndownData={burndownData}
+                                        />
                                 )}
-
-                                <section className='md:col-span-2 rounded-2xl bg-white border shadow-xl flex flex-col h-[80vh] md:h-full'>
-                                        <div className='px-5 py-4 border-b bg-gray-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3'>
-                                                <div>
-                                                        <h2 className='text-lg font-bold text-slate-800'>看板总览</h2>
-                                                        <p className='text-xs text-gray-500'>结合世界信息 + Agent 的智能策略，实时掌握任务健康度。</p>
-                                                </div>
-                                                <div className='flex gap-3 text-xs'>
-                                                        <div className='rounded-xl bg-white shadow-lg p-4 transition-transform hover:scale-[1.02]'>
-                                                                <div className='text-xs text-gray-500'>总任务 / Story Points</div>
-                                                                <div className='text-3xl font-bold text-slate-800 mt-1'>
-                                                                        {metrics.total} / <span className='text-indigo-600'>{metrics.totalPoints}</span>
-                                                                </div>
-                                                        </div>
-                                                        <div className='rounded-xl bg-white shadow-lg p-4 transition-transform hover:scale-[1.02]'>
-                                                                <div className='text-xs text-gray-500'>平均 Lead / Cycle（天/任务）</div>
-                                                                <div className='text-3xl font-bold text-indigo-600 mt-1'>
-                                                                        {metrics.avgLead} / {metrics.avgCycle}
-                                                                </div>
-                                                        </div>
-                                                        <div className='rounded-xl bg-white shadow-lg p-4 transition-transform hover:scale-[1.02]'>
-                                                                <div className='text-xs text-gray-500'>吞吐量 (7天/点数)</div>
-                                                                <div className='text-3xl font-bold text-emerald-600 mt-1'>{metrics.throughput7d}</div>
-                                                                <div className='text-xs text-gray-600 mt-1'>WIP/TH: {metrics.wipToTh || '—'}</div>
-                                                        </div>
-                                                        <div className='rounded-xl bg-white shadow-lg p-4 transition-transform hover:scale-[1.02]'>
-                                                                <div className='text-xs text-gray-500'>WIP (点数) / 阻塞任务数</div>
-                                                                <div className='text-3xl font-bold text-amber-600 mt-1'>
-                                                                        {metrics.wip} / <span className={metrics.counts.blocked > 0 ? 'text-red-500' : 'text-green-500'}>{metrics.counts.blocked}</span>
-                                                                </div>
-                                                        </div>
-                                                </div>
-                                        </div>
-
-                                        <div className='flex border-b border-gray-200 bg-white rounded-t-xl p-2 shadow-sm'>
-                                                {['kanban', 'cfd', 'burndown'].map((v) => (
-                                                        <button
-                                                                key={v}
-                                                                onClick={() => setView(v)}
-                                                                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors duration-150 ease-in-out ${v === view ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'}`}
-                                                        >
-                                                                {v === 'kanban' && '看板视图'}
-                                                                {v === 'cfd' && '累积流图 (CFD)'}
-                                                                {v === 'burndown' && '燃尽图 (Burndown)'}
-                                                        </button>
-                                                ))}
-                                        </div>
-
-                                        <div className='flex-1 overflow-y-auto bg-white rounded-b-2xl shadow-xl p-4'>
-                                                {view === 'kanban' && (
-                                                        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3'>
-                                                                {columns.map((col) => (
-                                                                        <Column key={col.id} title={col.name} onDrop={() => handleDrop(col.name)}>
-                                                                                {byStatus(col.name).map((task) => (
-                                                                                        <Card
-                                                                                                key={task.id}
-                                                                                                task={task}
-                                                                                                onDragStart={(e, id) => setDragId(id)}
-                                                                                                onEdit={setEdit}
-                                                                                                getModuleColor={getModuleColor}
-                                                                                                getTaskPoints={getTaskPoints}
-                                                                                                fmt={fmt}
-                                                                                        />
-                                                                                ))}
-                                                                        </Column>
-                                                                ))}
-                                                        </div>
-                                                )}
-                                                {view === 'cfd' && (
-                                                        <div className='min-h-[400px] flex flex-col'>
-                                                                <h3 className='font-bold text-xl mb-2 text-slate-700'>累积流图 (Cumulative Flow Diagram, CFD)</h3>
-                                                                <p className='text-sm text-gray-500 mb-4'>Y轴代表 <strong>Story Points</strong>。线条变宽表示流动健康，水平线表示瓶颈。</p>
-                                                                <ResponsiveContainer width='100%' height={350}>
-                                                                        <AreaChart data={cfdData}>
-                                                                                <CartesianGrid strokeDasharray='3 3' stroke='#e0e0e0' />
-                                                                                <XAxis dataKey='date' tickLine={false} style={{ fontSize: '10px' }} />
-                                                                                <YAxis style={{ fontSize: '10px' }} />
-                                                                                <Tooltip
-                                                                                        labelFormatter={(label) => `日期: ${label}`}
-                                                                                        formatter={(value, name) => [`${value} 点`, name]}
-                                                                                        contentStyle={{ fontSize: '12px', padding: '8px', borderRadius: '8px', border: '1px solid #ccc' }}
-                                                                                />
-                                                                                <Legend iconType='square' wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                                                                                {COLUMN_ORDER.slice().reverse().map((colName) => {
-                                                                                        const colorConfig = COLUMN_COLORS[colName];
-                                                                                        return <Area key={colName} type='monotone' dataKey={colName} stackId='1' stroke={colorConfig.color} fill={colorConfig.color} fillOpacity={0.8} name={colName} />;
-                                                                                })}
-                                                                        </AreaChart>
-                                                                </ResponsiveContainer>
-                                                        </div>
-                                                )}
-                                                {view === 'burndown' && (
-                                                        <div className='min-h-[400px] flex flex-col'>
-                                                                <h3 className='font-bold text-xl mb-2 text-slate-700'>燃尽图 (Burndown Chart)</h3>
-                                                                <p className='text-sm text-gray-500 mb-4'>Y轴代表剩余工作量 (<strong>Story Points</strong>)。实际曲线应保持在范围线下方。</p>
-                                                                <ResponsiveContainer width='100%' height={350}>
-                                                                        <LineChart data={burndownData}>
-                                                                                <CartesianGrid strokeDasharray='3 3' stroke='#e0e0e0' />
-                                                                                <XAxis dataKey='date' tickLine={false} style={{ fontSize: '10px' }} />
-                                                                                <YAxis style={{ fontSize: '10px' }} />
-                                                                                <Tooltip labelFormatter={(label) => `日期: ${label}`} formatter={(value, name) => [`${value} 点`, name]} />
-                                                                                <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                                                                                <Line type='monotone' dataKey='scope' stroke='#CBD5F5' strokeWidth={2} dot={false} name='计划范围 (Story Points)' />
-                                                                                <Line type='monotone' dataKey='remaining' stroke='#6366F1' strokeWidth={3} dot={false} name='剩余工作量 (Story Points)' />
-                                                                        </LineChart>
-                                                                </ResponsiveContainer>
-                                                        </div>
-                                                )}
-                                        </div>
-                                </section>
                         </div>
 
-                        <footer className='shrink-0 bg-white border-t text-[12px] text-gray-600'>
-                                <div className='max-w-7xl mx-auto px-4 py-2 space-x-2'>
-                                        <span>💡 提示：当前模式：{appMode === APP_MODES.KANBAN ? '看板管理' : '世界信息设置'}。</span>
-                                        <span>→ **请务必在代码中替换 `HARDCODED_API_KEY` 为您的 DeepSeek API Key。**</span>
-                                </div>
-                        </footer>
+                        <AppFooter appMode={appMode} />
 
-                        {edit && (
-                                <div className='fixed inset-0 bg-black/40 flex items-end md:items-center md:justify-center z-50' onClick={() => setEdit(null)}>
-                                        <div className='bg-white w-full md:w-[560px] rounded-t-2xl md:rounded-2xl p-6 shadow-2xl' onClick={(e) => e.stopPropagation()}>
-                                                <div className='text-xl font-bold mb-4 text-slate-800'>
-                                                        编辑任务 <span className='text-sm font-normal text-gray-500'>({edit.id})</span>
-                                                </div>
-                                                <form id='editForm' className='grid grid-cols-2 gap-4'>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                标题
-                                                                <input name='title' defaultValue={edit.title} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm' />
-                                                        </label>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                模块
-                                                                <input name='module' defaultValue={edit.module || ''} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm' />
-                                                        </label>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                状态
-                                                                <select name='status' defaultValue={edit.status} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm'>
-                                                                        <option>To Do</option>
-                                                                        <option>In Progress</option>
-                                                                        <option>Review</option>
-                                                                        <option>Done</option>
-                                                                </select>
-                                                        </label>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                级别
-                                                                <select name='level' defaultValue={edit.level || 'Task'} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm'>
-                                                                        <option>Task</option>
-                                                                        <option>Story</option>
-                                                                        <option>Epic</option>
-                                                                </select>
-                                                        </label>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                负责人（逗号分隔）
-                                                                <input name='owner' defaultValue={(edit.owner || []).join(', ')} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm' />
-                                                        </label>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                创建
-                                                                <input type='datetime-local' name='created_at' defaultValue={edit.created_at ? edit.created_at.slice(0, 16) : ''} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm' />
-                                                        </label>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                开始
-                                                                <input type='datetime-local' name='started_at' defaultValue={edit.started_at ? edit.started_at.slice(0, 16) : ''} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm' />
-                                                        </label>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                完成
-                                                                <input type='datetime-local' name='finished_at' defaultValue={edit.finished_at ? edit.finished_at.slice(0, 16) : ''} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm' />
-                                                        </label>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                截止
-                                                                <input type='datetime-local' name='due_at' defaultValue={edit.due_at ? edit.due_at.slice(0, 16) : ''} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm' />
-                                                        </label>
-                                                        <label className='text-xs block font-medium text-gray-700'>
-                                                                依赖任务 ID（逗号分隔）
-                                                                <input name='depends_on' defaultValue={(edit.depends_on || []).join(', ')} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm' />
-                                                        </label>
-                                                        <label className='col-span-2 text-xs block font-medium text-gray-700'>
-                                                                阻塞原因（清除内容以解除阻塞）
-                                                                <input name='block_reason' defaultValue={edit.block_reason || ''} className='mt-1 w-full border rounded-lg px-3 py-2 text-sm' />
-                                                        </label>
-                                                </form>
-                                                <div className='mt-6 flex justify-between'>
-                                                        <button className='px-4 py-2 rounded-lg bg-rose-100 text-rose-600 hover:bg-rose-200 text-sm font-semibold transition' onClick={() => handleDeleteTask(edit)}>
-                                                                删除任务
-                                                        </button>
-                                                        <div className='flex gap-3'>
-                                                                <button className='px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm font-semibold transition' onClick={() => setEdit(null)}>
-                                                                        取消
-                                                                </button>
-                                                                <button className='px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold transition' onClick={onEditSave}>
-                                                                        保存
-                                                                </button>
-                                                        </div>
-                                                </div>
-                                        </div>
-                                </div>
-                        )}
+                        <EditTaskModal task={edit} onClose={() => setEdit(null)} onDelete={handleDeleteTask} onSave={onEditSave} />
 
                         {showResetConfirm && <ResetConfirmModal onClose={() => setShowResetConfirm(false)} onConfirm={handleResetConfirm} />}
 
-                        {showClearTasksConfirm && <ClearTasksConfirmModal onClose={() => setShowClearTasksConfirm(false)} onConfirm={handleClearTasksConfirm} />}
+                        {showClearTasksConfirm && (
+                                <ClearTasksConfirmModal onClose={() => setShowClearTasksConfirm(false)} onConfirm={handleClearTasksConfirm} />
+                        )}
 
                         {taskToDelete && <DeleteConfirmModal task={taskToDelete} onClose={() => setTaskToDelete(null)} onConfirm={handleDeleteTaskConfirm} />}
 
