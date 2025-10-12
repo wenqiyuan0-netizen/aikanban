@@ -45,6 +45,7 @@ export function KanbanView({
         apiKey,
         inputRef,
         onSendMessage,
+        intentNotice,
         metrics,
         view,
         onChangeView,
@@ -59,11 +60,32 @@ export function KanbanView({
         cfdData,
         burndownData,
 }) {
+        const intentTitleMap = {
+                new_project: '新项目流程触发',
+                archived_project: '旧项目唤醒提示',
+                unknown: '判定不确定',
+        };
+
         return (
                 <>
                         <section className='rounded-2xl bg-white border shadow-xl flex flex-col overflow-hidden h-[80vh] md:h-full'>
                                 <div className='px-4 py-3 border-b text-base font-semibold text-slate-700 bg-gray-50'>AI 对话区（增量 Agent）</div>
                                 <div className='kanban-chat-window flex-1 p-4 overflow-y-auto flex flex-col'>
+                                        {intentNotice && (
+                                                <div className='mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-700'>
+                                                        <div className='font-semibold'>
+                                                                {intentTitleMap[intentNotice.type] || '意图判定提示'}
+                                                        </div>
+                                                        <p className='mt-1 leading-relaxed whitespace-pre-wrap'>
+                                                                {intentNotice.message}
+                                                        </p>
+                                                        {intentNotice.meta?.targetProjectName && (
+                                                                <p className='mt-1 text-[11px] text-amber-600'>
+                                                                        可能的项目名称：{intentNotice.meta.targetProjectName}
+                                                                </p>
+                                                        )}
+                                                </div>
+                                        )}
                                         {kanbanChatLog.map((m, i) => (
                                                 <div
                                                         key={i}

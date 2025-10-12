@@ -35,6 +35,7 @@ const rebuildWorkspace = (rawWorkspace) => {
                         createdAt: projectValue?.createdAt,
                         updatedAt: projectValue?.updatedAt,
                         chat: projectValue?.chat,
+                        intentLog: projectValue?.intentLog,
                         status: projectValue?.status,
                 });
                 return acc;
@@ -50,6 +51,7 @@ const rebuildWorkspace = (rawWorkspace) => {
                 projects,
                 archivedProjects: safeWorkspace.archivedProjects || {},
                 worldInfoSessions: safeWorkspace.worldInfoSessions || {},
+                intentLogVersion: safeWorkspace.intentLogVersion || 1,
                 agentPrompts: {
                         conversation: 1,
                         internal: 1,

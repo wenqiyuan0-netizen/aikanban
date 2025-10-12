@@ -33,6 +33,7 @@ export function WorldInfoSetup({
         inputRef,
         onFlowAbort,
         onFlowComplete,
+        entryContext,
 }) {
         useEffect(() => {
                 if (worldChat.length === 0) {
@@ -46,6 +47,21 @@ export function WorldInfoSetup({
                         );
                 }
         }, [appendChat, worldChat.length]);
+
+        const renderEntryHint = () => {
+                if (!entryContext) return null;
+                if (entryContext.source === 'classifier:new_project') {
+                        return '当前世界信息会话来自“新项目”判定，所有配置将覆盖旧项目。';
+                }
+                if (entryContext.source === 'ai_task_follow_up') {
+                        return 'AI 新增任务后触发的补充流程，请完善对应的世界信息。';
+                }
+                if (entryContext.source === 'manualEntry') {
+                        return '你从头部菜单进入了世界信息配置，可以在此更新项目元数据。';
+                }
+                return null;
+        };
+        const entryHint = renderEntryHint();
 
         async function sendWorldMsg() {
                 const text = (inputRef.current?.value || '').trim();
@@ -114,6 +130,11 @@ export function WorldInfoSetup({
                                 </button>
                         </div>
                         <div className='world-chat-window flex-1 p-4 overflow-y-auto flex flex-col'>
+                                {entryHint && (
+                                        <div className='mb-3 p-3 text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-lg'>
+                                                {entryHint}
+                                        </div>
+                                )}
                                 {worldChat.map((message, index) => (
                                         <div
                                                 key={index}

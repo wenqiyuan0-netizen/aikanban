@@ -19,49 +19,23 @@
  */
 import { APP_MODES } from '../constants/appModes';
 import { DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, HARDCODED_API_KEY } from '../config/apiConfig';
-import { KANBAN_PATCH_SCHEMA, WORLD_INFO_SCHEMA } from './aiSchemas';
+import { CLASSIFIER_INTENT_SCHEMA, KANBAN_PATCH_SCHEMA, WORLD_INFO_SCHEMA } from './aiSchemas';
 
-export const generatePatch = async (apiKey, mode, fullPrompt) => {
+const API_URL = DEEPSEEK_BASE_URL;
+const MODEL = DEEPSEEK_MODEL;
+
+const callStructuredJson = async ({
+        apiKey,
+        systemPrompt,
+        responseSchema,
+        userPrompt,
+        timeoutMs = 25000,
+        temperature = 0.1,
+        validate,
+}) => {
         const useApiKey = apiKey || HARDCODED_API_KEY;
-        const API_URL = DEEPSEEK_BASE_URL;
-
-        let systemPrompt;
-        let responseSchema;
-        const model = DEEPSEEK_MODEL;
-
         const controller = new AbortController();
-        const timeoutMs = 25000;
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-        if (mode === APP_MODES.WORLD_INFO_SETUP) {
-                responseSchema = WORLD_INFO_SCHEMA;
-                systemPrompt = `
-                        你是一个【项目元数据配置助理AI】。你的唯一任务是：根据用户输入和当前【世界信息】，引导用户补全或修正项目元数据。
-
-                        **核心规则:**
-                        1. \`ai_response\` 必须使用**亲昵、鼓励和支持的语气**。
-                        2. 如果信息不完整，\`status\` 设为 "INCOMPLETE"，并提出下一个**清晰、具体**的追问。
-                        3. 如果信息完整且无矛盾，\`status\` 设为 "COMPLETE"，并生成完整的 \`world_patch\` 结构。
-                        4. 所有日期字段必须是 UTC ISO 8601 格式。
-                        5. \`world_patch.memberList\` 必须是包含 \`id\`, \`name\`, \`role\` 对象的数组。
-                `;
-        } else {
-                responseSchema = KANBAN_PATCH_SCHEMA;
-                systemPrompt = `
-                        你是一个专业的敏捷看板经理AI (Kanban Manager Agent)。你的任务是根据用户指令和当前看板的**完整状态**和**世界信息**，运用专业的看板管理知识，生成**增量补丁指令 (patch_instructions)**，以及一段**友好的对话回复 (ai_response)**。
-
-                        **核心规则:**
-                        1.  **世界信息应用:** 你现在接收【世界信息 World Info】。请根据其中的项目目标、截止日期和规则，对用户指令做出更专业的推演和判断。
-                        2.  **看板管理专业性:** a) **任务拆分 (Decomposition):** 建议将大的 Epic/Story 拆分为 Task (task_add)。你需要自主判断，用户给出的任务属于epic/story/task，并写在‘level’中。
-                                b) **依赖关系:** 任务包含 \`depends_on\` 字段，用于指定前置任务ID。请使用 \`insights\` 中的 \`dependency_blocked\` 预警，主动提醒用户解决上游阻塞问题。
-                        3.  **智能预警与决策:**
-                                a) 根据 \`insights\` 中提供的 **WIP时长预警** 和 **依赖阻塞预警**，主动建议用户采取行动。
-                                b) 你的回复 (\`ai_response\`) 必须具有专业性，并结合看板数据进行解释。
-                        4.  **处理阻塞:** 如果用户要求阻塞任务，使用 \`task_update\` 设置 \`block_reason\` 字段，**不要**更改 \`status\` 字段。
-
-                        **工作流约束:** 任务移动必须遵循 **To Do -> In Progress -> Review -> Done** 的线性顺序。**禁止跳过阶段，除非用户明确要求。**
-                `;
-        }
 
         const messages = [
                 {
@@ -73,14 +47,14 @@ export const generatePatch = async (apiKey, mode, fullPrompt) => {
                 },
                 {
                         role: 'user',
-                        content: `${fullPrompt}\n\n请严格返回 JSON 对象。`,
+                        content: `${userPrompt}\n\n请严格返回 JSON 对象。`,
                 },
         ];
 
         const payload = {
-                model,
+                model: MODEL,
                 messages,
-                temperature: 0.1,
+                temperature,
                 response_format: { type: 'json_object' },
         };
 
@@ -113,18 +87,9 @@ export const generatePatch = async (apiKey, mode, fullPrompt) => {
                 }
 
                 const parsedJson = JSON.parse(jsonString);
-
-                if (!parsedJson.ai_response) {
-                        throw new Error('AI response validation failed. Missing ai_response.');
+                if (validate) {
+                        validate(parsedJson);
                 }
-
-                if (mode === APP_MODES.KANBAN && !Array.isArray(parsedJson.patch_instructions)) {
-                        throw new Error('Kanban mode validation failed. Missing patch_instructions array.');
-                }
-                if (mode === APP_MODES.WORLD_INFO_SETUP && !parsedJson.status) {
-                        throw new Error('Setup mode validation failed. Missing status field.');
-                }
-
                 return parsedJson;
         } catch (error) {
                 clearTimeout(timeoutId);
@@ -134,7 +99,106 @@ export const generatePatch = async (apiKey, mode, fullPrompt) => {
                         throw new Error(`AI Request Timed Out (超过 ${timeoutMs / 1000} 秒未响应).`);
                 }
 
-                console.error('[CONSOLE_ERROR] Error in generatePatch:', error);
+                console.error('[CONSOLE_ERROR] Error when calling DeepSeek API:', error);
                 throw new Error(`AI Communication Failure: ${error.message}`);
         }
+};
+
+export const generatePatch = async (apiKey, mode, fullPrompt) => {
+        let systemPrompt;
+        let responseSchema;
+
+        if (mode === APP_MODES.WORLD_INFO_SETUP) {
+                responseSchema = WORLD_INFO_SCHEMA;
+                systemPrompt = `
+                        你是一个【项目元数据配置助理AI】。你的唯一任务是：根据用户输入和当前【世界信息】，引导用户补全或修正项目元数据。
+
+                        **核心规则:**
+                        1. \`ai_response\` 必须使用**亲昵、鼓励和支持的语气**。
+                        2. 如果信息不完整，\`status\` 设为 "INCOMPLETE"，并提出下一个**清晰、具体**的追问。
+                        3. 如果信息完整且无矛盾，\`status\` 设为 "COMPLETE"，并生成完整的 \`world_patch\` 结构。
+                        4. 所有日期字段必须是 UTC ISO 8601 格式。
+                        5. \`world_patch.memberList\` 必须是包含 \`id\`, \`name\`, \`role\` 对象的数组。
+                `;
+        } else {
+                responseSchema = KANBAN_PATCH_SCHEMA;
+                systemPrompt = `
+                        你是一个专业的敏捷看板经理AI (Kanban Manager Agent)。你的任务是根据用户指令和当前看板的**完整状态**和**世界信息**，运用专业的看板管理知识，生成**增量补丁指令 (patch_instructions)**，以及一段**友好的对话回复 (ai_response)**。
+
+                        **核心规则:**
+                        1.  **世界信息应用:** 你现在接收【世界信息 World Info】。请根据其中的项目目标、截止日期和规则，对用户指令做出更专业的推演和判断。
+                        2.  **看板管理专业性:** a) **任务拆分 (Decomposition):** 建议将大的 Epic/Story 拆分为 Task (task_add)。你需要自主判断，用户给出的任务属于epic/story/task，并写在‘level’中。
+                                b) **依赖关系:** 任务包含 \`depends_on\` 字段，用于指定前置任务ID。请使用 \`insights\` 中的 \`dependency_blocked\` 预警，主动提醒用户解决上游阻塞问题。
+                        3.  **智能预警与决策:**
+                                a) 根据 \`insights\` 中提供的 **WIP时长预警** 和 **依赖阻塞预警**，主动建议用户采取行动。
+                                b) 你的回复 (\`ai_response\`) 必须具有专业性，并结合看板数据进行解释。
+                        4.  **处理阻塞:** 如果用户要求阻塞任务，使用 \`task_update\` 设置 \`block_reason\` 字段，**不要**更改 \`status\` 字段。
+
+                        **工作流约束:** 任务移动必须遵循 **To Do -> In Progress -> Review -> Done** 的线性顺序。**禁止跳过阶段，除非用户明确要求。**
+                `;
+        }
+
+        return callStructuredJson({
+                apiKey,
+                systemPrompt,
+                responseSchema,
+                userPrompt: fullPrompt,
+                timeoutMs: 25000,
+                validate: (parsedJson) => {
+                        if (!parsedJson.ai_response) {
+                                throw new Error('AI response validation failed. Missing ai_response.');
+                        }
+
+                        if (mode === APP_MODES.KANBAN && !Array.isArray(parsedJson.patch_instructions)) {
+                                throw new Error('Kanban mode validation failed. Missing patch_instructions array.');
+                        }
+                        if (mode === APP_MODES.WORLD_INFO_SETUP && !parsedJson.status) {
+                                throw new Error('Setup mode validation failed. Missing status field.');
+                        }
+                },
+        });
+};
+
+export const classifyIntent = async (apiKey, { userInput, currentProject, worldInfo, archivedProjects, previousIntents }) => {
+        const systemPrompt = `
+                你是一个前端内部的「轻量判定 Agent」，负责在用户的自然语言命令进入主流程前进行分类。
+                你的输出只被系统使用，**不要**编写任何给用户看的话。
+
+                你的职责：
+                1. 判断命令属于「NEW_PROJECT」(开启/切换到全新项目)、「CURRENT_PROJECT」(继续当前项目事务)、「ARCHIVED_PROJECT」(请求查看旧项目)、或无法判断的「UNKNOWN」。
+                2. 当返回 NEW_PROJECT 或 ARCHIVED_PROJECT 时，请在 meta 字段里告知是否需要二次确认 (requiresConfirmation)。
+                3. 如果是 ARCHIVED_PROJECT，请补充 \`archivedResolution\`：LIST=需要列出目录；SPECIFIC=用户已给出具体项目；MERGE=用户想合并旧项目；NONE=未说明。
+                4. 给出简短的中文 reason，用于在调试日志中解释分类原因。
+                5. 若能识别到具体项目名称，请填入 meta.targetProjectName。
+        `;
+
+        const prompt = `
+                【用户最新输入】
+                ${userInput}
+
+                【当前项目概要】
+                ${JSON.stringify(currentProject || {}, null, 2)}
+
+                【当前项目世界信息摘要】
+                ${JSON.stringify(worldInfo || {}, null, 2)}
+
+                【可唤醒的归档项目列表】
+                ${JSON.stringify(archivedProjects || [], null, 2)}
+
+                【最近 5 次判定历史】
+                ${JSON.stringify(previousIntents || [], null, 2)}
+        `;
+
+        return callStructuredJson({
+                apiKey,
+                systemPrompt,
+                responseSchema: CLASSIFIER_INTENT_SCHEMA,
+                userPrompt: prompt,
+                timeoutMs: 15000,
+                validate: (result) => {
+                        if (!result.intent) {
+                                throw new Error('Classifier missing intent field.');
+                        }
+                },
+        });
 };

@@ -34,8 +34,10 @@ export function useWorkspace() {
                 id: activeProjectId,
                 data: clone(DEFAULT_DATA),
                 chat: { kanban: INITIAL_KANBAN_CHAT, world: [] },
+                intentLog: [],
         };
         const data = activeProject.data;
+        const intentLog = Array.isArray(activeProject.intentLog) ? activeProject.intentLog : [];
 
         const [kanbanChatLog, setKanbanChatLog] = useState(() =>
                 activeProject.chat?.kanban?.length ? activeProject.chat.kanban : INITIAL_KANBAN_CHAT,
@@ -135,5 +137,27 @@ export function useWorkspace() {
                 chatLogsRef,
                 appendChat,
                 updateActiveProjectData,
+                intentLog,
+                recordIntentDecision: useCallback(
+                        (entry) => {
+                                setWorkspace((previous) => {
+                                        const project = previous.projects[previous.currentProjectId];
+                                        if (!project) return previous;
+
+                                        const nextWorkspace = clone(previous);
+                                        const nextProject = nextWorkspace.projects[nextWorkspace.currentProjectId];
+                                        const safeEntry = {
+                                                ...entry,
+                                                recordedAt: entry?.recordedAt || nowISO(),
+                                        };
+                                        const nextLog = Array.isArray(nextProject.intentLog) ? nextProject.intentLog.slice() : [];
+                                        nextLog.push(safeEntry);
+                                        nextProject.intentLog = nextLog;
+                                        nextProject.updatedAt = nowISO();
+                                        return nextWorkspace;
+                                });
+                        },
+                        [],
+                ),
         };
 }

@@ -43,14 +43,18 @@ import { calculateBurndownData, calculateCfdData } from './app/logic/charts';
 import { applyPatch, enforceLinearWorkflow } from './app/logic/patches';
 import { applyWorldPatch } from './app/logic/worldInfo';
 import { PROJECT_FLOW_EVENTS, PROJECT_FLOW_STATES, createProjectFlowContext, reduceProjectFlow } from './app/logic/projectFlow';
-import { generatePatch } from './app/services/aiService';
+import { classifyIntent, generatePatch } from './app/services/aiService';
 import { clone } from './app/utils/clone';
 import { nowISO, fmt, toUtcIso } from './app/utils/dateUtils';
 import { useWorkspace } from './app/hooks/useWorkspace';
 import { INITIAL_KANBAN_CHAT } from './app/constants/chat';
+import { INTENTS, ARCHIVED_RESOLUTION } from './app/constants/intents';
 
 export default function App() {
         const {
+                workspace,
+                activeProject,
+                activeProjectId,
                 data,
                 worldInfo,
                 kanbanChatLog,
@@ -60,6 +64,8 @@ export default function App() {
                 chatLogsRef,
                 appendChat,
                 updateActiveProjectData,
+                intentLog,
+                recordIntentDecision,
         } = useWorkspace();
 
         const [dragId, setDragId] = useState(null);
@@ -77,6 +83,9 @@ export default function App() {
         const [message, setMessage] = useState(null);
         const [taskToDelete, setTaskToDelete] = useState(null);
         const [pendingTaskCreation, setPendingTaskCreation] = useState(null);
+        const [intentNotice, setIntentNotice] = useState(null);
+        const [abortRequestContext, setAbortRequestContext] = useState(null);
+        const [worldInfoEntryContext, setWorldInfoEntryContext] = useState(null);
 
         const [apiKey] = useState(initialApiKey);
         const [isAiThinking, setIsAiThinking] = useState(false);
@@ -87,16 +96,26 @@ export default function App() {
                 setProjectFlow((previous) => reduceProjectFlow(previous, { type, payload }));
         }, []);
 
-        const beginProjectAbortFlow = useCallback(() => {
-                if (appMode === APP_MODES.WORLD_INFO_SETUP || isAbortFlowActive) return;
-                dispatchProjectFlow(PROJECT_FLOW_EVENTS.REQUEST_ABORT);
-                setShowResetConfirm(true);
-        }, [appMode, dispatchProjectFlow, isAbortFlowActive]);
+        const beginProjectAbortFlow = useCallback(
+                (context = {}) => {
+                        if (appMode === APP_MODES.WORLD_INFO_SETUP || isAbortFlowActive) return;
+                        const metadata = { ...context, requestedAt: nowISO() };
+                        setAbortRequestContext(metadata);
+                        dispatchProjectFlow(
+                                PROJECT_FLOW_EVENTS.REQUEST_ABORT,
+                                { metadata: { requestContext: metadata } },
+                        );
+                        setShowResetConfirm(true);
+                },
+                [appMode, dispatchProjectFlow, isAbortFlowActive],
+        );
 
         const handleResetModalClose = useCallback(() => {
                 setShowResetConfirm(false);
                 dispatchProjectFlow(PROJECT_FLOW_EVENTS.CANCEL_ABORT);
-        }, [dispatchProjectFlow]);
+                setAbortRequestContext(null);
+                setIntentNotice(null);
+        }, [dispatchProjectFlow, setAbortRequestContext, setIntentNotice]);
 
         const columns = useMemo(() => {
                 const cols = (data.board?.columns || [])
@@ -238,7 +257,7 @@ export default function App() {
         }
 
         function resetAll() {
-                beginProjectAbortFlow();
+                beginProjectAbortFlow({ source: 'manualResetButton' });
         }
 
         const setWorldInfo = useCallback(
@@ -255,6 +274,11 @@ export default function App() {
                         worldChat: [...(chatLogsRef.current.world || [])],
                 };
                 setPreResetSnapshot(snapshot);
+
+                const entryContext = abortRequestContext
+                        ? abortRequestContext
+                        : { source: 'manualReset', requestedAt: nowISO() };
+                setWorldInfoEntryContext(entryContext);
 
                 dispatchProjectFlow(
                         PROJECT_FLOW_EVENTS.CONFIRM_ABORT,
@@ -281,14 +305,34 @@ export default function App() {
                 setKanbanChatLog(INITIAL_KANBAN_CHAT);
                 setWorldChatLog([]);
                 setPendingTaskCreation(null);
-                setAppMode(APP_MODES.WORLD_INFO_SETUP);
-                setShowResetConfirm(false);
+                setIntentNotice(null);
+
+                const isClassifierNewProject = entryContext?.source === 'classifier:new_project';
+                const messageTitle = isClassifierNewProject ? '开启新项目配置' : '进入世界信息配置';
+                const messageBody = isClassifierNewProject
+                        ? `检测到你想启动新项目。${entryContext?.classifierMeta?.reason || '已保存旧项目快照，准备引导新的世界信息。'}`
+                        : '已保存旧项目快照，请重新填写新项目的世界信息，以便看板 AI 接管。';
+
                 setMessage({
-                        title: '进入世界信息配置',
-                        body: '已保存旧项目快照，请重新填写新项目的世界信息，以便看板 AI 接管。',
+                        title: messageTitle,
+                        body: messageBody,
                         type: 'info',
                 });
+
+                setAppMode(APP_MODES.WORLD_INFO_SETUP);
+                setShowResetConfirm(false);
+                setAbortRequestContext(null);
         }
+
+        const enterWorldInfoSetup = useCallback(
+                (context = {}) => {
+                        const metadata = { ...context };
+                        if (!metadata.requestedAt) metadata.requestedAt = nowISO();
+                        setWorldInfoEntryContext(metadata);
+                        setAppMode(APP_MODES.WORLD_INFO_SETUP);
+                },
+                [setAppMode, setWorldInfoEntryContext],
+        );
 
         const handleWorldInfoAbort = useCallback(() => {
                 dispatchProjectFlow(PROJECT_FLOW_EVENTS.CANCEL_ABORT);
@@ -299,10 +343,13 @@ export default function App() {
                                         ? preResetSnapshot.kanbanChat
                                         : INITIAL_KANBAN_CHAT,
                         );
-                        setWorldChatLog(preResetSnapshot.worldChat || []);
+                setWorldChatLog(preResetSnapshot.worldChat || []);
                 }
                 setPreResetSnapshot(null);
                 setAppMode(APP_MODES.KANBAN);
+                setWorldInfoEntryContext(null);
+                setAbortRequestContext(null);
+                setIntentNotice(null);
                 setMessage({ title: '已取消项目重置', body: '已恢复到之前的项目状态。', type: 'info' });
         }, [
                 dispatchProjectFlow,
@@ -312,6 +359,9 @@ export default function App() {
                 setWorldChatLog,
                 setAppMode,
                 setMessage,
+                setWorldInfoEntryContext,
+                setAbortRequestContext,
+                setIntentNotice,
         ]);
 
         const handleWorldInfoComplete = useCallback(
@@ -335,9 +385,20 @@ export default function App() {
                         });
                         setKanbanChatLog(INITIAL_KANBAN_CHAT);
                         setPreResetSnapshot(null);
+                        setWorldInfoEntryContext(null);
+                        setAbortRequestContext(null);
+                        setIntentNotice(null);
                         dispatchProjectFlow(PROJECT_FLOW_EVENTS.RETURN_TO_KANBAN);
                 },
-                [dispatchProjectFlow, setAppMode, setMessage, setKanbanChatLog],
+                [
+                        dispatchProjectFlow,
+                        setAppMode,
+                        setMessage,
+                        setKanbanChatLog,
+                        setWorldInfoEntryContext,
+                        setAbortRequestContext,
+                        setIntentNotice,
+                ],
         );
 
         function handleDeleteTask(task) {
@@ -446,22 +507,90 @@ export default function App() {
                         return;
                 }
 
-                const userMessage = { role: 'user', text, time: new Date().toLocaleTimeString() };
+                const timestamp = new Date().toLocaleTimeString();
+                const userMessage = { role: 'user', text, time: timestamp };
+                const nextKanbanHistory = [...(chatLogsRef.current.kanban || []), userMessage];
+                const worldChatHistory = chatLogsRef.current.world || [];
+
                 appendChat(userMessage, APP_MODES.KANBAN);
                 inputRef.current.value = '';
                 setIsAiThinking(true);
 
                 try {
-                        const kanbanChat = chatLogsRef.current.kanban || [];
-                        const worldChat = chatLogsRef.current.world || [];
+                        const archivedSummaries = Object.values(workspace.archivedProjects || {}).map((project) => ({
+                                id: project.id,
+                                title: project.title,
+                                status: project.status,
+                        }));
+                        const classifierResult = await classifyIntent(apiKey, {
+                                userInput: text,
+                                currentProject: {
+                                        id: activeProjectId,
+                                        title: activeProject?.title || worldInfo?.projectName || '未命名项目',
+                                        status: activeProject?.status || 'active',
+                                },
+                                worldInfo,
+                                archivedProjects: archivedSummaries,
+                                previousIntents: intentLog.slice(-5),
+                        });
+
+                        recordIntentDecision({
+                                projectId: activeProjectId,
+                                userInput: text,
+                                ...classifierResult,
+                        });
+
+                        if (classifierResult.intent === INTENTS.NEW_PROJECT) {
+                                setIntentNotice({
+                                        type: 'new_project',
+                                        message: classifierResult.reason || '轻量判定 Agent 判断需要创建新项目。',
+                                        meta: classifierResult.meta,
+                                });
+                                beginProjectAbortFlow({
+                                        source: 'classifier:new_project',
+                                        userInput: text,
+                                        classifierMeta: classifierResult,
+                                });
+                                return;
+                        }
+
+                        if (classifierResult.intent === INTENTS.ARCHIVED_PROJECT) {
+                                setIntentNotice({
+                                        type: 'archived_project',
+                                        message: classifierResult.reason || '命令涉及旧项目，等待旧项目模块接管。',
+                                        meta: classifierResult.meta,
+                                });
+                                const archivedMessage = classifierResult.meta?.archivedResolution === ARCHIVED_RESOLUTION.LIST
+                                        ? '轻量判定 Agent 认为你想查看旧项目目录，该功能将在后续迭代中启用。'
+                                        : '系统识别到旧项目相关指令，旧项目唤醒功能尚未完成。';
+                                const confidenceText =
+                                        typeof classifierResult.confidence === 'number'
+                                                ? `\n分类置信度：${classifierResult.confidence.toFixed(2)}`
+                                                : '';
+                                setMessage({
+                                        title: '旧项目功能开发中',
+                                        body: archivedMessage + confidenceText,
+                                        type: 'info',
+                                });
+                                return;
+                        }
+
+                        if (classifierResult.intent === INTENTS.UNKNOWN) {
+                                setIntentNotice({
+                                        type: 'unknown',
+                                        message: classifierResult.reason || '判定结果不确定，暂按当前项目处理。',
+                                        meta: classifierResult.meta,
+                                });
+                        } else {
+                                setIntentNotice(null);
+                        }
+
                         const insights = buildInsights(data);
                         const fullBoardState = clone(data);
                         const world = fullBoardState.worldInfo || {};
-                        const chatHistory = [...kanbanChat, userMessage]
-                                .map((m) => `[${m.role}]: ${m.text}`)
-                                .join('\n');
-                        const worldHistory = worldChat.length
-                                ? worldChat.map((m) => `[${m.role}]: ${m.text}`).join('\n')
+                        const chatHistory = nextKanbanHistory.map((m) => `[${m.role}]: ${m.text}`).join('\n');
+                        const worldHistory = worldChatHistory.length
+                                ? worldChatHistory.map((m) => `[${m.role}]: ${m.text}`).join('\n')
                                 : '（暂无世界信息配置对话记录）';
 
                         const fullPrompt = `
@@ -559,7 +688,7 @@ export default function App() {
                                 APP_MODES.WORLD_INFO_SETUP,
                         );
                 }
-                setAppMode(APP_MODES.WORLD_INFO_SETUP);
+                enterWorldInfoSetup({ source: 'ai_task_follow_up', previewCount: previewTasks.length });
         }
 
         function handleCancelAiTaskAdds() {
@@ -578,7 +707,7 @@ export default function App() {
                                 onImportJson={importJSON}
                                 onExportBoard={exportBoard}
                                 onExportChatLog={exportChatLog}
-                                onEnterWorldInfo={() => setAppMode(APP_MODES.WORLD_INFO_SETUP)}
+                                onEnterWorldInfo={() => enterWorldInfoSetup({ source: 'manualEntry' })}
                                 onOpenAddTask={openAddTaskModal}
                                 onClearTasks={clearAllTasks}
                                 onResetAll={resetAll}
@@ -598,6 +727,7 @@ export default function App() {
                                                 inputRef={inputRef}
                                                 onFlowAbort={handleWorldInfoAbort}
                                                 onFlowComplete={handleWorldInfoComplete}
+                                                entryContext={worldInfoEntryContext}
                                         />
                                 ) : (
                                         <KanbanView
@@ -606,6 +736,7 @@ export default function App() {
                                                 apiKey={apiKey}
                                                 inputRef={inputRef}
                                                 onSendMessage={sendMsg}
+                                                intentNotice={intentNotice}
                                                 metrics={metrics}
                                                 view={view}
                                                 onChangeView={setView}
@@ -627,7 +758,13 @@ export default function App() {
 
                         <EditTaskModal task={edit} onClose={() => setEdit(null)} onDelete={handleDeleteTask} onSave={onEditSave} />
 
-                        {showResetConfirm && <ResetConfirmModal onClose={handleResetModalClose} onConfirm={handleResetConfirm} />}
+                        {showResetConfirm && (
+                                <ResetConfirmModal
+                                        context={abortRequestContext}
+                                        onClose={handleResetModalClose}
+                                        onConfirm={handleResetConfirm}
+                                />
+                        )}
 
                         {showClearTasksConfirm && (
                                 <ClearTasksConfirmModal onClose={() => setShowClearTasksConfirm(false)} onConfirm={handleClearTasksConfirm} />

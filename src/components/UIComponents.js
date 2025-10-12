@@ -201,24 +201,31 @@ export function MessageBox({ message, onClose }) {
 /* --------------------------------------------------------------------------
  * 🔴 ResetConfirmModal（重置看板确认框）
  * -------------------------------------------------------------------------- */
-export function ResetConfirmModal({ onClose, onConfirm }) {
-	return (
-		<Modal onClose={onClose}>
-			<h3 className="text-lg font-bold mb-4 text-rose-600">⚠️ 确认重置看板</h3>
-			<p className="text-sm text-gray-700">
-				确定要将看板重置为默认样例吗？
-				<span className="font-semibold block mt-1">所有自定义数据都将丢失。</span>
-			</p>
-			<div className="mt-6 flex justify-end gap-3">
-				<button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm">
-					取消
-				</button>
-				<button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-sm">
-					确认重置
-				</button>
-			</div>
-		</Modal>
-	);
+export function ResetConfirmModal({ context, onClose, onConfirm }) {
+        const isNewProject = context?.source === 'classifier:new_project';
+        const title = isNewProject ? '⚠️ 确认切换到新项目' : '⚠️ 确认重置看板';
+        const body = isNewProject
+                ? '系统检测到你希望开始全新的项目。确认后将清空当前看板数据，并跳转到世界信息配置界面。'
+                : '确定要将看板重置为默认样例吗？所有自定义数据都将丢失。';
+        const reason = context?.classifierMeta?.reason || context?.notes;
+
+        return (
+                <Modal onClose={onClose}>
+                        <h3 className="text-lg font-bold mb-4 text-rose-600">{title}</h3>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                {body}
+                                {reason && <span className="block mt-2 text-xs text-gray-500">判定说明：{reason}</span>}
+                        </p>
+                        <div className="mt-6 flex justify-end gap-3">
+                                <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm">
+                                        取消
+                                </button>
+                                <button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-sm">
+                                        {isNewProject ? '确认切换' : '确认重置'}
+                                </button>
+                        </div>
+                </Modal>
+        );
 }
 
 /* --------------------------------------------------------------------------

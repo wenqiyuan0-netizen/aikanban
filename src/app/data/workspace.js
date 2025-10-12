@@ -30,6 +30,14 @@ const ensureArray = (value, fallback) => {
         return clone(fallback);
 };
 
+const ensureIntentLog = (log) => {
+        if (!Array.isArray(log)) return [];
+        return log.map((entry) => ({
+                ...entry,
+                recordedAt: entry.recordedAt || nowISO(),
+        }));
+};
+
 const normaliseTasks = (tasks) =>
         ensureArray(tasks, DEFAULT_DATA.tasks).map((task) => {
                 const nextTask = { ...task };
@@ -80,6 +88,7 @@ export const createProjectRecord = ({
         createdAt,
         updatedAt,
         chat,
+        intentLog,
         status = 'active',
 } = {}) => {
         const initialData = normaliseProjectData(data);
@@ -96,6 +105,7 @@ export const createProjectRecord = ({
                         kanban: ensureArray(chat?.kanban, []),
                         world: ensureArray(chat?.world, []),
                 },
+                intentLog: ensureIntentLog(intentLog),
         };
 };
 
@@ -115,6 +125,7 @@ export const createWorkspaceSkeleton = ({
                 },
                 archivedProjects: archivedProjects || {},
                 worldInfoSessions: worldInfoSessions || {},
+                intentLogVersion: 1,
                 agentPrompts: {
                         conversation: 1,
                         internal: 1,

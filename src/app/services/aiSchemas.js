@@ -16,6 +16,46 @@
  * - 为新状态机事件（如 `REQUEST_PROJECT_RESET`）补充 schema，并与 prompt 模板保持同步。
  * - 考虑将 schema 转化为可复用的 Zod/TypeScript 类型。
  */
+export const CLASSIFIER_INTENT_SCHEMA = {
+        type: 'OBJECT',
+        properties: {
+                intent: {
+                        type: 'STRING',
+                        enum: ['NEW_PROJECT', 'CURRENT_PROJECT', 'ARCHIVED_PROJECT', 'UNKNOWN'],
+                        description: 'Classifier output indicating which workflow should handle the user request.',
+                },
+                confidence: {
+                        type: 'NUMBER',
+                        description: 'A float between 0 and 1 representing how confident the classifier is in this decision.',
+                },
+                reason: {
+                        type: 'STRING',
+                        description: 'Short natural language summary of why the intent was chosen (Chinese).',
+                },
+                meta: {
+                        type: 'OBJECT',
+                        description: 'Additional routing hints for downstream workflows. 所有字段均为可选。',
+                        properties: {
+                                archivedResolution: {
+                                        type: 'STRING',
+                                        enum: ['LIST', 'SPECIFIC', 'MERGE', 'NONE'],
+                                        description: '当 intent=ARCHIVED_PROJECT 时，指示需要目录视图还是直接打开具体项目。',
+                                },
+                                targetProjectName: {
+                                        type: 'STRING',
+                                        description: '当 intent=ARCHIVED_PROJECT 或 NEW_PROJECT 时，给出的项目名称提示。',
+                                },
+                                requiresConfirmation: {
+                                        type: 'BOOLEAN',
+                                        description: '是否需要用户在 UI 中进行二次确认，例如废弃当前项目。',
+                                },
+                                notes: { type: 'STRING', description: '额外的路由说明或后续 Prompt 应注意的事项。' },
+                        },
+                },
+        },
+        required: ['intent'],
+};
+
 export const KANBAN_PATCH_SCHEMA = {
         type: 'OBJECT',
         properties: {
