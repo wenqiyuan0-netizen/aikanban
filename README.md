@@ -26,7 +26,14 @@ This repository hosts an experimental AI-assisted Kanban board. The current prio
    - 细化 Prompt：按任务等级（Epic/Story/Task）注入不同上下文，支持依赖分析。
    - 增加任务依赖关系的输入与可视化模块；提供阻塞提醒。
    - 阶段性交付，可拆成多次迭代，每次 2~3 天。
-5. **UI & visual polish 界面美化**
+5. **Task creation confirmation flow 任务创建二次确认流程**
+   - 当看板 AI 判定需要新建任务时，弹出确认弹窗并展示由全局信息 AI 补充的上下文。
+   - 用户确认后自动跳转到「全局信息配置」界面，支持继续完善环境设定。
+   - 同步清理右侧面板：从「AI 生成的代码结构」改为更易读的卡片或提示布局，预计线框 + UI 实作约 2 天。
+6. **Dual-role authentication planning 用户 / 管理员双视图规划**
+   - 在登录阶段划分「普通用户」与「管理员」两种入口，管理员可访问高级配置与统计面板。
+   - 先梳理权限模型与路由结构，在实现前完成需求文档与 UX 草图，预计 1 天调研。
+7. **UI & visual polish 界面美化**
    - 引入 Tailwind Design Token 或 CSS 变量统一色板。
    - 制作全局样式指南，优化卡片间距、阴影、交互动画。
    - 借助 Figma 打磨设计稿，再实施组件层面的调整，完整周期约 3~4 天。
@@ -55,5 +62,10 @@ This repository hosts an experimental AI-assisted Kanban board. The current prio
 - 调整布局：优化卡片间距、列宽自适应、拖拽动效。
 - 增添数据可视化：升级图表主题，增加提示信息、动画。
 - 借助设计工具（Figma/Sketch）先出高保真稿，再根据稿件迭代 React 组件。
+
+### 是否需要快/慢模型并实现流式回答？
+- 建议保留「轻量闲聊模型」处理即时反馈、确认类对话，响应更快并复用现有对话上下文。
+- 当用户请求汇总、依赖计算等复杂分析时，再调度「深度推理模型」，先在本地计算指标（CDF、燃尽图、WIP/TH 等），再由模型组织回答。
+- 先规划统一的 Agent 管理器，支持按场景选择模型，并在 UI 上展示逐步流式输出（骨架屏 + 完整内容）。待确认弹窗与配置跳转流程落地后再排期实现。
 
 欢迎根据以上计划逐步推进，如需新增模块或调优方案，可在 Issue / PR 中继续讨论。
