@@ -8,35 +8,51 @@ This repository hosts an experimental AI-assisted Kanban board. The current prio
 
 - ✅ `App.js` 已拆分为 orchestrator（状态协调者），核心逻辑迁移至 `src/app/**` 目录。
 - ✅ 默认数据、度量、AI 调用等模块完成初次抽离，可独立演进。
-- 🔄 正在规划本地化、多语言切换、UI 美化等下一阶段工作。
+- 🔄 正在推进「多项目管理 / 世界信息重启流程」的落地，确保后续界面与 Agent 配置保持一致。
 
-## Upcoming milestones · 下一阶段计划
+## Active implementation plan · 当前迭代重点
 
-1. **Documentation localisation 文档本地化**
-   - 在 `README.md` 中保持核心中文内容，补充「如何维护英文版」指南。
-   - 产出 `README.en.md`（英文）或在 GitHub Wiki 中维护英文文档，预计 0.5 天完成。
-2. **Prompt & API configuration 界面化 Prompt / API 配置**
-   - 将当前写死在配置文件的 API Key / Prompt 迁移到「设置面板」，通过点击操作与表单填写。
-   - 设计草图 + 表单组件开发 + 本地存储持久化，预计 1.5~2 天。
-3. **In-app language switch 应用内多语言切换**
-   - 采用 i18next + JSON 词条文件，将 UI 文案抽取到 `src/i18n/**`。
-   - 入口 App 保留语言状态，提供顶部语言切换按钮，初期支持「中文 / English」。
-   - 基础搭建与组件接入预计 2~3 天（含文案梳理与测试）。
-4. **Kanban intelligence upgrades 看板智能升级**
-   - 细化 Prompt：按任务等级（Epic/Story/Task）注入不同上下文，支持依赖分析。
-   - 增加任务依赖关系的输入与可视化模块；提供阻塞提醒。
-   - 阶段性交付，可拆成多次迭代，每次 2~3 天。
-5. **Task creation confirmation flow 任务创建二次确认流程**
-   - 当看板 AI 判定需要新建任务时，弹出确认弹窗并展示由全局信息 AI 补充的上下文。
-   - 用户确认后自动跳转到「全局信息配置」界面，支持继续完善环境设定。
-   - 同步清理右侧面板：从「AI 生成的代码结构」改为更易读的卡片或提示布局，预计线框 + UI 实作约 2 天。
-6. **Dual-role authentication planning 用户 / 管理员双视图规划**
-   - 在登录阶段划分「普通用户」与「管理员」两种入口，管理员可访问高级配置与统计面板。
-   - 先梳理权限模型与路由结构，在实现前完成需求文档与 UX 草图，预计 1 天调研。
-7. **UI & visual polish 界面美化**
-   - 引入 Tailwind Design Token 或 CSS 变量统一色板。
-   - 制作全局样式指南，优化卡片间距、阴影、交互动画。
-   - 借助 Figma 打磨设计稿，再实施组件层面的调整，完整周期约 3~4 天。
+> 目标：建立可维护的「多项目管理」骨架，让看板 Agent 与世界信息 Agent 在切换项目时拥有清晰的责任边界与 prompt 协议。
+
+### 1. Prompt 层级划分
+
+- **对话 Agent（面向用户）**：
+  - 看板 Agent 负责用户可见的对话、任务确认、旧项目召回指令。
+  - 世界信息 Agent 只在配置阶段暴露给用户，辅助完成结构化项目描述或头脑风暴。
+- **内部协同 Agent（系统提示）**：
+  - `kanbanOrchestrator`：接收看板 Agent 的结构化 JSON（如 `{"intent":"REQUEST_PROJECT_RESET"}`），决定是否弹窗、切换界面、读取存储。
+  - `worldInfoBroker`：从世界信息 Agent 输出中筛选摘要、校验必填字段，生成供看板 Agent 复用的初始 prompt。
+- **Prompt 控制策略**：
+  - 面向用户的 prompt 要强调上下文来源、确认流程与用户可做的选择。
+  - 内部协同 prompt 更多是指令式模板（无用户可见文案），确保结构化响应可被前端安全解析。
+
+### 2. 状态机与事件梳理
+
+| 状态 | 触发事件 | 说明 |
+| --- | --- | --- |
+| `KANBAN_ACTIVE` | 用户提出废弃/重启意图 | 看板 Agent 返回 `REQUEST_PROJECT_RESET`，前端弹窗确认 |
+| `CONFIRM_ABORT` | 用户确认 | 本地归档当前项目，进入世界信息配置 |
+| `WORLD_INFO_RESET` | 世界信息 Agent 输出完整配置 | 生成结构化摘要 + 对话日志快照 |
+| `KANBAN_REBOOT` | 用户确认回到看板 | 清空 UI 聊天、注入新摘要、可选生成初始任务 |
+
+### 3. 数据切面
+
+- `currentProject`：当前活跃项目的任务列、聊天记录、指标缓存。
+- `archivedProjects`：历史项目完整备份（用于未来唤醒）。
+- `worldInfoSessions`：按项目 ID 存储配置阶段的聊天与结构化结果。
+- `agentPrompts`：集中管理对话 Agent 与内部协同 Agent 的 prompt 模板，便于按语言或版本迭代。
+
+### 4. 任务拆解
+
+1. 扩充存储模块：支持多项目命名空间、读写归档数据。
+2. 实现确认弹窗与状态迁移回调，断开旧项目 UI 聊天。
+3. 构建世界信息配置向导：
+   - 用户界面空白状态，无旧项目痕迹。
+   - Agent 输出的结构化摘要需符合 schema 校验。
+4. 在看板视图中读取新摘要，触发“AI 建议 vs 用户手动”分支。
+5. 记录虚拟时间轴调整接口，为后续同步历史事件做好准备。
+
+完成上述步骤后，将进入多语言、UI 美化等后续里程碑。
 
 ## Project reset & multi-board orchestration · 新旧项目切换与多看板调度
 
@@ -86,27 +102,5 @@ This repository hosts an experimental AI-assisted Kanban board. The current prio
 3. **Refactor prompts & API UI 重构 Prompt / API 界面**：新建设置对话框或独立页面，支持表单输入、验证、预览。
 4. **Iterate UI design 迭代界面设计**：先确定设计基调（颜色、排版），再逐步替换现有组件样式。
 5. **Track progress with issues 使用 Issue 跟踪进度**：按里程碑拆分 Issue，确保计划落地。
-
-## FAQ
-
-### README 的中文写法建议？
-采用「中文主文档 + 英文附录」或「双 README 文件」的结构。保持章节对应（Overview、Setup、Development、Roadmap），便于中英文同步维护。后续计划在仓库中补充 `README.en.md` 模板。
-
-### 能否把 API Key / Prompt 设置做成「点击配置」？
-可以，通过设置面板（Modal / Drawer）提供表单输入。提交后存入 `localStorage`，再由 `App.js` 读取。开发周期约 1.5~2 天，包括表单、校验、持久化、以及与现有 `aiService` 的对接。
-
-### 多语言切换如何实现？需要多久？
-首选 `i18next`，将界面文案抽离成语言包。顶层用 React Context 或 `useTranslation` hook 管理当前语言，并在 UI 中提供切换按钮。初次落地（含双语资源文件）约 2~3 天。
-
-### 如何进一步美化 UI？
-- 统一色彩与字号：建立设计令牌或 Tailwind 配置。
-- 调整布局：优化卡片间距、列宽自适应、拖拽动效。
-- 增添数据可视化：升级图表主题，增加提示信息、动画。
-- 借助设计工具（Figma/Sketch）先出高保真稿，再根据稿件迭代 React 组件。
-
-### 是否需要快/慢模型并实现流式回答？
-- 建议保留「轻量闲聊模型」处理即时反馈、确认类对话，响应更快并复用现有对话上下文。
-- 当用户请求汇总、依赖计算等复杂分析时，再调度「深度推理模型」，先在本地计算指标（CDF、燃尽图、WIP/TH 等），再由模型组织回答。
-- 先规划统一的 Agent 管理器，支持按场景选择模型，并在 UI 上展示逐步流式输出（骨架屏 + 完整内容）。待确认弹窗与配置跳转流程落地后再排期实现。
 
 欢迎根据以上计划逐步推进，如需新增模块或调优方案，可在 Issue / PR 中继续讨论。

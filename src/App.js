@@ -20,7 +20,7 @@ import { computeMetrics, buildInsights } from './app/logic/metrics';
 import { calculateBurndownData, calculateCfdData } from './app/logic/charts';
 import { applyPatch, enforceLinearWorkflow } from './app/logic/patches';
 import { applyWorldPatch } from './app/logic/worldInfo';
-import { loadData, saveData } from './app/storage/localStorage';
+import { loadWorkspace, saveWorkspace } from './app/storage/localStorage';
 import { clone } from './app/utils/clone';
 import { nowISO, fmt, toUtcIso } from './app/utils/dateUtils';
 import { generatePatch } from './app/services/aiService';
@@ -43,7 +43,14 @@ const INITIAL_KANBAN_CHAT = [
  */
 
 export default function App() {
-        const [data, setData] = useState(loadData());
+        const [workspace, setWorkspace] = useState(() => loadWorkspace());
+        const activeProjectId = workspace.currentProjectId;
+        const activeProject = workspace.projects[activeProjectId] || {
+                id: activeProjectId,
+                data: clone(DEFAULT_DATA),
+                chat: { kanban: INITIAL_KANBAN_CHAT, world: [] },
+        };
+        const data = activeProject.data;
         const [dragId, setDragId] = useState(null);
         const [edit, setEdit] = useState(null);
         const [view, setView] = useState('kanban');
@@ -58,9 +65,11 @@ export default function App() {
         const [apiKey] = useState(initialApiKey);
         const [isAiThinking, setIsAiThinking] = useState(false);
 
-        const [kanbanChatLog, setKanbanChatLog] = useState(INITIAL_KANBAN_CHAT);
-        const [worldChatLog, setWorldChatLog] = useState([]);
-        const chatLogsRef = useRef({ kanban: INITIAL_KANBAN_CHAT, world: [] });
+        const [kanbanChatLog, setKanbanChatLog] = useState(
+                activeProject.chat?.kanban?.length ? activeProject.chat.kanban : INITIAL_KANBAN_CHAT,
+        );
+        const [worldChatLog, setWorldChatLog] = useState(activeProject.chat?.world || []);
+        const chatLogsRef = useRef({ kanban: kanbanChatLog, world: worldChatLog });
         const inputRef = useRef(null);
 
         const worldInfo = data.worldInfo;
@@ -72,14 +81,52 @@ export default function App() {
                 };
         }, [kanbanChatLog, worldChatLog]);
 
+        useEffect(() => {
+                setWorkspace((previous) => {
+                        const project = previous.projects[previous.currentProjectId];
+                        if (!project) return previous;
+                        if (project.chat?.kanban === kanbanChatLog && project.chat?.world === worldChatLog) {
+                                return previous;
+                        }
+                        const nextWorkspace = clone(previous);
+                        const nextProject = nextWorkspace.projects[nextWorkspace.currentProjectId];
+                        nextProject.chat = {
+                                kanban: kanbanChatLog,
+                                world: worldChatLog,
+                        };
+                        nextProject.updatedAt = nowISO();
+                        return nextWorkspace;
+                });
+        }, [kanbanChatLog, worldChatLog]);
+
         const [pendingTaskCreation, setPendingTaskCreation] = useState(null);
 
         useEffect(() => {
-                saveData(data);
-        }, [data]);
+                saveWorkspace(workspace);
+        }, [workspace]);
+
+        const updateActiveProjectData = useCallback(
+                (updater) => {
+                        setWorkspace((previous) => {
+                                const project = previous.projects[previous.currentProjectId];
+                                if (!project) return previous;
+
+                                const baseData = project.data;
+                                const nextData = typeof updater === 'function' ? updater(clone(baseData)) : updater;
+                                if (!nextData) return previous;
+
+                                const nextWorkspace = clone(previous);
+                                const nextProject = nextWorkspace.projects[nextWorkspace.currentProjectId];
+                                nextProject.data = nextData;
+                                nextProject.updatedAt = nowISO();
+                                return nextWorkspace;
+                        });
+                },
+                [],
+        );
 
         const setWorldInfo = (newWorldPatch) => {
-                setData((previous) => applyWorldPatch(previous, newWorldPatch));
+                updateActiveProjectData((previous) => applyWorldPatch(previous, newWorldPatch));
         };
 
         const columns = useMemo(() => {
@@ -147,7 +194,7 @@ export default function App() {
                         user: 'human',
                 });
                 next.board.last_update = nowISO();
-                setData(next);
+                updateActiveProjectData(next);
                 setDragId(null);
         }
 
@@ -162,7 +209,7 @@ export default function App() {
         }
 
         function handleClearTasksConfirm() {
-                setData((prevData) => {
+                updateActiveProjectData((prevData) => {
                         const nextData = clone(prevData);
                         nextData.tasks = [];
                         nextData.events = nextData.events || [];
@@ -193,7 +240,7 @@ export default function App() {
                                 if (!Array.isArray(parsed.members)) parsed.members = clone(DEFAULT_DATA.members);
                                 if (!parsed.worldInfo) parsed.worldInfo = clone(DEFAULT_DATA.worldInfo);
                                 parsed.board.last_update = nowISO();
-                                setData(parsed);
+                                updateActiveProjectData(parsed);
                         } catch (error) {
                                 setMessage({ title: 'JSON 导入错误', body: 'JSON 解析失败：' + error.message, type: 'error' });
                         }
@@ -225,7 +272,9 @@ export default function App() {
         }
 
         function handleResetConfirm() {
-                setData(clone(DEFAULT_DATA));
+                updateActiveProjectData(clone(DEFAULT_DATA));
+                setKanbanChatLog(INITIAL_KANBAN_CHAT);
+                setWorldChatLog([]);
                 setAppMode(APP_MODES.KANBAN);
                 setShowResetConfirm(false);
         }
@@ -249,7 +298,7 @@ export default function App() {
                         title: taskToDelete.title,
                 });
                 next.board.last_update = nowISO();
-                setData(next);
+                updateActiveProjectData(next);
                 setTaskToDelete(null);
         }
 
@@ -275,7 +324,7 @@ export default function App() {
                         user: 'human',
                 });
                 next.board.last_update = nowISO();
-                setData(next);
+                updateActiveProjectData(next);
                 setShowAddTaskModal(false);
         }
 
@@ -321,7 +370,7 @@ export default function App() {
                         user: 'human',
                 });
                 next.board.last_update = nowISO();
-                setData(next);
+                updateActiveProjectData(next);
                 setEdit(null);
         }
 
@@ -423,7 +472,7 @@ export default function App() {
                                 let baseData = data;
                                 if (immediatePatches.length > 0) {
                                         baseData = applyPatch(data, immediatePatches);
-                                        setData(baseData);
+                                        updateActiveProjectData(baseData);
                                 }
 
                                 if (deferredPatches.length > 0) {
@@ -487,7 +536,7 @@ export default function App() {
                 if (!pendingTaskCreation) return;
                 const { baseData, patches, previewTasks = [] } = pendingTaskCreation;
                 const dataWithNewTasks = applyPatch(baseData, patches);
-                setData(dataWithNewTasks);
+                updateActiveProjectData(dataWithNewTasks);
                 setPendingTaskCreation(null);
                 setMessage({
                         title: 'AI 新任务已添加',
