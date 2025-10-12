@@ -44,6 +44,48 @@ export function useWorkspace() {
         );
         const [worldChatLog, setWorldChatLog] = useState(() => activeProject.chat?.world || []);
         const chatLogsRef = useRef({ kanban: kanbanChatLog, world: worldChatLog });
+        const timelineRef = useRef([]);
+
+        const recordTimeline = useCallback((entry) => {
+                timelineRef.current = [
+                        ...timelineRef.current.slice(-199),
+                        {
+                                type: entry?.type || 'UNKNOWN',
+                                recordedAt: nowISO(),
+                                meta: entry?.meta || {},
+                        },
+                ];
+        }, []);
+
+        const replaceKanbanChatLog = useCallback(
+                (nextLog = [], meta = {}) => {
+                        setKanbanChatLog(() => {
+                                const normalized = Array.isArray(nextLog) ? nextLog : [];
+                                chatLogsRef.current = {
+                                        ...chatLogsRef.current,
+                                        kanban: normalized,
+                                };
+                                return normalized;
+                        });
+                        recordTimeline({ type: 'KANBAN_CHAT_REPLACED', meta: { size: nextLog.length || 0, ...meta } });
+                },
+                [recordTimeline],
+        );
+
+        const replaceWorldChatLog = useCallback(
+                (nextLog = [], meta = {}) => {
+                        setWorldChatLog(() => {
+                                const normalized = Array.isArray(nextLog) ? nextLog : [];
+                                chatLogsRef.current = {
+                                        ...chatLogsRef.current,
+                                        world: normalized,
+                                };
+                                return normalized;
+                        });
+                        recordTimeline({ type: 'WORLD_CHAT_REPLACED', meta: { size: nextLog.length || 0, ...meta } });
+                },
+                [recordTimeline],
+        );
 
         useEffect(() => {
                 chatLogsRef.current = {
@@ -66,30 +108,42 @@ export function useWorkspace() {
                                 world: worldChatLog,
                         };
                         nextProject.updatedAt = nowISO();
+                        recordTimeline({
+                                type: 'CHAT_SYNCED_TO_WORKSPACE',
+                                meta: { projectId: nextWorkspace.currentProjectId, kanbanSize: kanbanChatLog.length, worldSize: worldChatLog.length },
+                        });
                         return nextWorkspace;
                 });
-        }, [kanbanChatLog, worldChatLog]);
+        }, [kanbanChatLog, recordTimeline, worldChatLog]);
 
         useEffect(() => {
                 saveWorkspace(workspace);
-        }, [workspace]);
+                recordTimeline({ type: 'WORKSPACE_PERSISTED', meta: { projectId: workspace.currentProjectId } });
+        }, [recordTimeline, workspace]);
 
-        const updateActiveProjectData = useCallback((updater) => {
-                setWorkspace((previous) => {
-                        const project = previous.projects[previous.currentProjectId];
-                        if (!project) return previous;
+        const updateActiveProjectData = useCallback(
+                (updater, meta = {}) => {
+                        setWorkspace((previous) => {
+                                const project = previous.projects[previous.currentProjectId];
+                                if (!project) return previous;
 
-                        const baseData = project.data;
-                        const nextData = typeof updater === 'function' ? updater(clone(baseData)) : updater;
-                        if (!nextData) return previous;
+                                const baseData = project.data;
+                                const nextData = typeof updater === 'function' ? updater(clone(baseData)) : updater;
+                                if (!nextData) return previous;
 
-                        const nextWorkspace = clone(previous);
-                        const nextProject = nextWorkspace.projects[nextWorkspace.currentProjectId];
-                        nextProject.data = nextData;
-                        nextProject.updatedAt = nowISO();
-                        return nextWorkspace;
-                });
-        }, []);
+                                const nextWorkspace = clone(previous);
+                                const nextProject = nextWorkspace.projects[nextWorkspace.currentProjectId];
+                                nextProject.data = nextData;
+                                nextProject.updatedAt = nowISO();
+                                recordTimeline({
+                                        type: 'PROJECT_DATA_UPDATED',
+                                        meta: { projectId: nextProject.id, ...meta },
+                                });
+                                return nextWorkspace;
+                        });
+                },
+                [recordTimeline],
+        );
 
         const appendChat = useCallback(
                 (message, mode = APP_MODES.KANBAN) => {
@@ -100,6 +154,10 @@ export function useWorkspace() {
                                                 ...chatLogsRef.current,
                                                 world: next,
                                         };
+                                        recordTimeline({
+                                                type: 'WORLD_CHAT_APPENDED',
+                                                meta: { projectId: workspace.currentProjectId, role: message?.role },
+                                        });
                                         return next;
                                 });
                         } else {
@@ -109,6 +167,10 @@ export function useWorkspace() {
                                                 ...chatLogsRef.current,
                                                 kanban: next,
                                         };
+                                        recordTimeline({
+                                                type: 'KANBAN_CHAT_APPENDED',
+                                                meta: { projectId: workspace.currentProjectId, role: message?.role },
+                                        });
                                         return next;
                                 });
                         }
@@ -121,7 +183,14 @@ export function useWorkspace() {
                                 if (chatWindow) chatWindow.scrollTop = chatWindow.scrollHeight;
                         }, 50);
                 },
-                [],
+                [recordTimeline, workspace.currentProjectId],
+        );
+
+        const logDebugEvent = useCallback(
+                (meta = {}) => {
+                        recordTimeline({ type: 'DEBUG_NOTE', meta });
+                },
+                [recordTimeline],
         );
 
         return {
@@ -131,9 +200,9 @@ export function useWorkspace() {
                 data,
                 worldInfo: data.worldInfo,
                 kanbanChatLog,
-                setKanbanChatLog,
+                replaceKanbanChatLog,
                 worldChatLog,
-                setWorldChatLog,
+                replaceWorldChatLog,
                 chatLogsRef,
                 appendChat,
                 updateActiveProjectData,
@@ -154,10 +223,16 @@ export function useWorkspace() {
                                         nextLog.push(safeEntry);
                                         nextProject.intentLog = nextLog;
                                         nextProject.updatedAt = nowISO();
+                                        recordTimeline({
+                                                type: 'INTENT_RECORDED',
+                                                meta: { projectId: nextProject.id, intent: safeEntry?.intent },
+                                        });
                                         return nextWorkspace;
                                 });
                         },
-                        [],
+                        [recordTimeline],
                 ),
+                timelineRef,
+                logDebugEvent,
         };
 }

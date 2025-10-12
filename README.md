@@ -14,6 +14,7 @@ This repository contains an AI-assisted project management workspace that combin
 | ---- | ------ | ----- |
 | React entry point refactor | ✅ | `App.js` 现仅渲染 `AppContainer`，详细逻辑迁移至 `src/app/containers/AppContainer.js` 并附带逻辑审计注释。|
 | Workspace persistence | ✅ | 提供多项目数据结构骨架，支持本地存储读写与快照。|
+| Workspace action timeline | ✅ | `useWorkspace` 统一写入数据并记录 `timelineRef` 调试事件，`AppContainer` 通过 `logDebugEvent` 在重置/世界信息/AI 补丁处打点，便于复现状态流。|
 | Project reset scaffolding | ✅ | 引入 `projectFlow` 状态机、确认弹窗钩子与世界信息界面切换逻辑。|
 | Lightweight classifier gating | 🟡 | 现在在看板输入前触发判定并记录 `intentLog`，旧项目分支仍待对接 UI。|
 | Module documentation | ✅ | 核心模块提供双语注释，说明职责与未完事项。|
@@ -186,6 +187,13 @@ flowchart TD
    - 合并项目通过本地 UI 封闭式提问与关键词判断，无需 AI 参与。
 8. **Colour management 颜色管理**
    - 看板 Agent 返回的配色将映射到预设的中国传统色板，确保视觉一致性。
+
+### 5. State integrity & debugging · 状态一致性与调试
+
+- **Single writer for workspace data / 工作区单一写入口**：所有对项目数据的修改现在都通过 `updateActiveProjectData` 的函数式更新完成，避免 UI 直接改写 `data` 导致 React 状态、内存对象与 localStorage 不一致。
+- **Chat log guards / 聊天记录守护**：`replaceKanbanChatLog`、`replaceWorldChatLog` 取代裸露的 `setState`，并在每次替换或追加时写入调试时间线，防止多方向数据流造成脏状态。
+- **Timeline instrumentation / 时间线打点**：`useWorkspace` 将最近 ~200 次操作记录在 `timelineRef` 中，`AppContainer` 的 `logDebugEvent` 会在拖拽、AI 补丁、世界信息切换、项目重置等关键节点写入事件，便于排查“幽灵 Bug”。
+- **Persistence auditing / 持久化审计**：每次同步到 localStorage 都会记录 `WORKSPACE_PERSISTED` 打点，可交叉比对调试时间线，确保持久化频率与预期一致。
 
 ## Implementation roadmap · 实施路线图
 

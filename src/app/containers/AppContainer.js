@@ -64,14 +64,15 @@ export function AppContainer() {
                 data,
                 worldInfo,
                 kanbanChatLog,
-                setKanbanChatLog,
+                replaceKanbanChatLog,
                 worldChatLog,
-                setWorldChatLog,
+                replaceWorldChatLog,
                 chatLogsRef,
                 appendChat,
                 updateActiveProjectData,
                 intentLog,
                 recordIntentDecision,
+                logDebugEvent,
         } = useWorkspace();
 
         const [dragId, setDragId] = useState(null);
@@ -119,8 +120,13 @@ export function AppContainer() {
                                 { metadata: { requestContext: metadata } },
                         );
                         setShowResetConfirm(true);
+                        logDebugEvent({
+                                event: 'project-reset:requested',
+                                mode: appMode,
+                                source: metadata.source || 'unknown',
+                        });
                 },
-                [appMode, dispatchProjectFlow, isAbortFlowActive],
+                [appMode, dispatchProjectFlow, isAbortFlowActive, logDebugEvent],
         );
 
         const handleResetModalClose = useCallback(() => {
@@ -213,55 +219,87 @@ export function AppContainer() {
                 if (appMode === APP_MODES.WORLD_INFO_SETUP) return;
                 if (!dragId) return;
 
-                const next = clone(data);
-                const task = next.tasks.find((item) => item.id === dragId);
-                if (!task) return;
-                const fromStatus = task.status;
-                const fromSubStatus = task.subStatus || null;
-                const toStatus = status;
+                const outcome = { updated: false, error: null };
 
-                if (fromStatus === toStatus && fromSubStatus === (subStatus || null)) return;
+                updateActiveProjectData(
+                        (draft) => {
+                                const task = draft.tasks.find((item) => item.id === dragId);
+                                if (!task) {
+                                        outcome.error = '未找到对应任务，拖拽被忽略。';
+                                        return null;
+                                }
 
-                try {
-                        enforceLinearWorkflow(task, toStatus);
-                } catch (error) {
-                        setMessage({ title: '流程警告', body: error.message, type: 'error' });
+                                const fromStatus = task.status;
+                                const fromSubStatus = task.subStatus || null;
+                                const toStatus = status;
+
+                                if (fromStatus === toStatus && fromSubStatus === (subStatus || null)) {
+                                        return null;
+                                }
+
+                                try {
+                                        enforceLinearWorkflow(task, toStatus);
+                                } catch (error) {
+                                        outcome.error = error.message;
+                                        return null;
+                                }
+
+                                task.status = toStatus;
+                                task.subStatus = subStatus || null;
+
+                                if (lane?.field) {
+                                        applyLaneFieldUpdate(task, lane);
+                                }
+
+                                if (toStatus === 'To Do') {
+                                        task.started_at = undefined;
+                                        task.finished_at = undefined;
+                                        task.block_reason = null;
+                                } else if (['Designing', 'In Progress', 'Code Review', 'QA'].includes(toStatus)) {
+                                        if (!task.started_at) task.started_at = nowISO();
+                                        task.finished_at = undefined;
+                                } else if (toStatus === 'Done') {
+                                        if (!task.finished_at) task.finished_at = nowISO();
+                                        task.block_reason = null;
+                                }
+
+                                draft.events = draft.events || [];
+                                draft.events.push({
+                                        id: `e-${(draft.events.length || 0) + 1}`,
+                                        time: nowISO(),
+                                        type: 'move',
+                                        task_id: task.id,
+                                        from: fromStatus,
+                                        to: toStatus,
+                                        meta: { subStatus: subStatus || null },
+                                        user: 'human',
+                                });
+                                draft.board.last_update = nowISO();
+                                outcome.updated = true;
+                                return draft;
+                        },
+                        { reason: 'drag-drop', taskId: dragId, toStatus: status, lane: lane?.field || null },
+                );
+
+                if (outcome.error) {
+                        logDebugEvent({
+                                event: 'drag-drop:error',
+                                taskId: dragId,
+                                message: outcome.error,
+                        });
+                        setMessage({ title: '流程警告', body: outcome.error, type: 'error' });
                         return;
                 }
 
-                task.status = toStatus;
-                task.subStatus = subStatus || null;
-
-                if (lane?.field) {
-                        applyLaneFieldUpdate(task, lane);
+                if (outcome.updated) {
+                        logDebugEvent({
+                                event: 'drag-drop:completed',
+                                taskId: dragId,
+                                toStatus: status,
+                                lane: lane?.field || null,
+                        });
+                        setDragId(null);
                 }
-
-                if (toStatus === 'To Do') {
-                        task.started_at = undefined;
-                        task.finished_at = undefined;
-                        task.block_reason = null;
-                } else if (['Designing', 'In Progress', 'Code Review', 'QA'].includes(toStatus)) {
-                        if (!task.started_at) task.started_at = nowISO();
-                        task.finished_at = undefined;
-                } else if (toStatus === 'Done') {
-                        if (!task.finished_at) task.finished_at = nowISO();
-                        task.block_reason = null;
-                }
-
-                next.events = next.events || [];
-                next.events.push({
-                        id: `e-${(next.events.length || 0) + 1}`,
-                        time: nowISO(),
-                        type: 'move',
-                        task_id: task.id,
-                        from: fromStatus,
-                        to: toStatus,
-                        meta: { subStatus: subStatus || null },
-                        user: 'human',
-                });
-                next.board.last_update = nowISO();
-                updateActiveProjectData(next);
-                setDragId(null);
         }
 
         function applyLaneFieldUpdate(task, lane) {
@@ -305,20 +343,22 @@ export function AppContainer() {
         }
 
         function handleClearTasksConfirm() {
-                updateActiveProjectData((prevData) => {
-                        const nextData = clone(prevData);
-                        nextData.tasks = [];
-                        nextData.events = nextData.events || [];
-                        nextData.events.push({
-                                id: `e-${(nextData.events.length || 0) + 1}`,
-                                time: nowISO(),
-                                type: 'clear_all_tasks',
-                                user: 'human',
-                                notes: '所有任务被手动清空',
-                        });
-                        nextData.board.last_update = nowISO();
-                        return nextData;
-                });
+                updateActiveProjectData(
+                        (draft) => {
+                                draft.tasks = [];
+                                draft.events = draft.events || [];
+                                draft.events.push({
+                                        id: `e-${(draft.events.length || 0) + 1}`,
+                                        time: nowISO(),
+                                        type: 'clear_all_tasks',
+                                        user: 'human',
+                                        notes: '所有任务被手动清空',
+                                });
+                                draft.board.last_update = nowISO();
+                                return draft;
+                        },
+                        { reason: 'clear-all-tasks' },
+                );
                 setShowClearTasksConfirm(false);
                 setMessage({ title: '清空成功', body: '看板任务已全部清空，项目配置和成员信息已保留。', type: 'success' });
         }
@@ -336,7 +376,10 @@ export function AppContainer() {
                                 if (!Array.isArray(parsed.members)) parsed.members = clone(DEFAULT_DATA.members);
                                 if (!parsed.worldInfo) parsed.worldInfo = clone(DEFAULT_DATA.worldInfo);
                                 parsed.board.last_update = nowISO();
-                                updateActiveProjectData(parsed);
+                                updateActiveProjectData(() => clone(parsed), {
+                                        reason: 'import-json',
+                                        fileName: file.name,
+                                });
                         } catch (error) {
                                 setMessage({ title: 'JSON 导入错误', body: 'JSON 解析失败：' + error.message, type: 'error' });
                         }
@@ -455,8 +498,8 @@ export function AppContainer() {
                 // Logic Audit · 逻辑审计：此处重置世界信息为 `{}`，默认假设世界信息 Agent 会在下一步完整填充。
                 // 如果未来支持“取消配置但保留部分旧信息”，需要在状态机中添加分支以避免直接清空。
 
-                setKanbanChatLog(INITIAL_KANBAN_CHAT);
-                setWorldChatLog([]);
+                replaceKanbanChatLog(INITIAL_KANBAN_CHAT, { reason: 'project-reset:init-kanban-chat' });
+                replaceWorldChatLog([], { reason: 'project-reset:clear-world-chat' });
                 setPendingTaskCreation(null);
                 setIntentNotice(null);
 
@@ -475,6 +518,11 @@ export function AppContainer() {
                 setAppMode(APP_MODES.WORLD_INFO_SETUP);
                 setShowResetConfirm(false);
                 setAbortRequestContext(null);
+                logDebugEvent({
+                        event: 'project-reset:confirmed',
+                        previousTaskCount: data.tasks?.length || 0,
+                        entrySource: entryContext?.source || 'manual',
+                });
         }
 
         const enterWorldInfoSetup = useCallback(
@@ -483,8 +531,13 @@ export function AppContainer() {
                         if (!metadata.requestedAt) metadata.requestedAt = nowISO();
                         setWorldInfoEntryContext(metadata);
                         setAppMode(APP_MODES.WORLD_INFO_SETUP);
+                        logDebugEvent({
+                                event: 'world-info:entered',
+                                source: metadata.source || 'manual',
+                                previewCount: metadata.previewCount || 0,
+                        });
                 },
-                [setAppMode, setWorldInfoEntryContext],
+                [logDebugEvent, setAppMode, setWorldInfoEntryContext],
         );
 
         const processKanbanPatchResponse = useCallback(
@@ -519,8 +572,10 @@ export function AppContainer() {
                                 .map((patch) => patch.details);
 
                         if (previewTasks.length === 0) {
-                                const updated = applyPatch(baseData, normalizedPatches);
-                                updateActiveProjectData(updated);
+                                updateActiveProjectData(
+                                        (draft) => applyPatch(draft, normalizedPatches),
+                                        { reason: 'ai-patch:auto-apply', source },
+                                );
                                 setPendingTaskCreation(null);
                                 if (typeof onNoNewTasksApplied === 'function') {
                                         onNoNewTasksApplied();
@@ -543,13 +598,18 @@ export function AppContainer() {
         const handleWorldInfoAbort = useCallback(() => {
                 dispatchProjectFlow(PROJECT_FLOW_EVENTS.CANCEL_ABORT);
                 if (preResetSnapshot) {
-                        updateActiveProjectData(() => clone(preResetSnapshot.data));
-                        setKanbanChatLog(
+                        updateActiveProjectData(() => clone(preResetSnapshot.data), {
+                                reason: 'project-reset:restore-data',
+                        });
+                        replaceKanbanChatLog(
                                 preResetSnapshot.kanbanChat && preResetSnapshot.kanbanChat.length
                                         ? preResetSnapshot.kanbanChat
                                         : INITIAL_KANBAN_CHAT,
+                                { reason: 'project-reset:restore-kanban-chat' },
                         );
-                setWorldChatLog(preResetSnapshot.worldChat || []);
+                        replaceWorldChatLog(preResetSnapshot.worldChat || [], {
+                                reason: 'project-reset:restore-world-chat',
+                        });
                 }
                 setPreResetSnapshot(null);
                 setAppMode(APP_MODES.KANBAN);
@@ -557,18 +617,20 @@ export function AppContainer() {
                 setAbortRequestContext(null);
                 setIntentNotice(null);
                 setMessage({ title: '已取消项目重置', body: '已恢复到之前的项目状态。', type: 'info' });
+                logDebugEvent({ event: 'project-reset:aborted', restoredSnapshot: Boolean(preResetSnapshot) });
                 // Logic Audit · 逻辑审计：当存在多项目快照时，仅恢复 `preResetSnapshot`，后续需要与正式归档/恢复机制打通。
         }, [
                 dispatchProjectFlow,
                 preResetSnapshot,
                 updateActiveProjectData,
-                setKanbanChatLog,
-                setWorldChatLog,
+                replaceKanbanChatLog,
+                replaceWorldChatLog,
                 setAppMode,
                 setMessage,
                 setWorldInfoEntryContext,
                 setAbortRequestContext,
                 setIntentNotice,
+                logDebugEvent,
         ]);
 
         const kickoffKanbanAfterWorldInfo = useCallback(
@@ -693,12 +755,18 @@ export function AppContainer() {
                                         : '世界信息配置完成，开始新的看板对话吧！',
                                 type: 'success',
                         });
-                        setKanbanChatLog(INITIAL_KANBAN_CHAT);
+                        replaceKanbanChatLog(INITIAL_KANBAN_CHAT, {
+                                reason: 'world-info-complete:seed-kanban-chat',
+                        });
                         setPreResetSnapshot(null);
                         setWorldInfoEntryContext(null);
                         setAbortRequestContext(null);
                         setIntentNotice(null);
                         dispatchProjectFlow(PROJECT_FLOW_EVENTS.RETURN_TO_KANBAN);
+                        logDebugEvent({
+                                event: 'world-info:completed',
+                                projectName: result?.worldPatch?.projectName || null,
+                        });
 
                         // Logic Audit · 逻辑审计：假设世界信息 Agent 会返回 `worldPatch`，若为空则沿用当前 data。
                         // 后续需结合 prompt 版本管理，避免因 prompt 失效导致看板接管缺乏上下文。
@@ -713,10 +781,11 @@ export function AppContainer() {
                         kickoffKanbanAfterWorldInfo,
                         setAppMode,
                         setMessage,
-                        setKanbanChatLog,
+                        replaceKanbanChatLog,
                         setWorldInfoEntryContext,
                         setAbortRequestContext,
                         setIntentNotice,
+                        logDebugEvent,
                         worldInfoEntryContext,
                 ],
         );
@@ -728,26 +797,32 @@ export function AppContainer() {
 
         function handleDeleteTaskConfirm() {
                 if (!taskToDelete) return;
-                const next = clone(data);
-                next.tasks = next.tasks.filter((task) => task.id !== taskToDelete.id);
-                next.events = next.events || [];
-                next.events.push({
-                        id: `e-${(next.events.length || 0) + 1}`,
-                        time: nowISO(),
-                        type: 'delete',
-                        task_id: taskToDelete.id,
-                        user: 'human',
-                        title: taskToDelete.title,
-                });
-                next.board.last_update = nowISO();
-                updateActiveProjectData(next);
+                updateActiveProjectData(
+                        (draft) => {
+                                if (!draft.tasks.some((task) => task.id === taskToDelete.id)) {
+                                        return null;
+                                }
+                                draft.tasks = draft.tasks.filter((task) => task.id !== taskToDelete.id);
+                                draft.events = draft.events || [];
+                                draft.events.push({
+                                        id: `e-${(draft.events.length || 0) + 1}`,
+                                        time: nowISO(),
+                                        type: 'delete',
+                                        task_id: taskToDelete.id,
+                                        user: 'human',
+                                        title: taskToDelete.title,
+                                });
+                                draft.board.last_update = nowISO();
+                                return draft;
+                        },
+                        { reason: 'delete-task', taskId: taskToDelete.id },
+                );
                 setTaskToDelete(null);
                 // Logic Audit · 逻辑审计：删除任务后没有回退机制，后续需要在补丁协议与本地 UI 中引入“撤销/回收站”能力。
         }
 
         function handleAddTaskSubmit(payload) {
                 if (!payload || !payload.title) return;
-                const next = clone(data);
                 const id = `t-${Math.random().toString(36).slice(2, 8)}`;
                 const createdAt = nowISO();
                 const dueAt = payload.due_at ? toUtcIso(payload.due_at) : undefined;
@@ -778,67 +853,77 @@ export function AppContainer() {
                         tags,
                 };
 
-                next.tasks.push(newTask);
-                next.events = next.events || [];
-                next.events.push({
-                        id: `e-${(next.events.length || 0) + 1}`,
-                        time: nowISO(),
-                        type: 'new',
-                        task_id: id,
-                        user: 'human',
-                });
-                next.board.last_update = nowISO();
-                updateActiveProjectData(next);
+                updateActiveProjectData(
+                        (draft) => {
+                                draft.tasks = draft.tasks || [];
+                                draft.tasks.push(newTask);
+                                draft.events = draft.events || [];
+                                draft.events.push({
+                                        id: `e-${(draft.events.length || 0) + 1}`,
+                                        time: nowISO(),
+                                        type: 'new',
+                                        task_id: id,
+                                        user: 'human',
+                                });
+                                draft.board.last_update = nowISO();
+                                return draft;
+                        },
+                        { reason: 'manual-add-task', taskId: id },
+                );
                 setShowAddTaskModal(false);
         }
 
         function onEditSave(payload) {
                 if (!payload || !edit) return;
-                const next = clone(data);
-                const task = next.tasks.find((item) => item.id === edit.id);
-                if (!task) return;
+                updateActiveProjectData(
+                        (draft) => {
+                                const task = draft.tasks.find((item) => item.id === edit.id);
+                                if (!task) return null;
 
-                task.title = payload.title;
-                task.description = payload.description;
-                task.module = payload.module || undefined;
-                task.status = payload.status;
-                task.subStatus = payload.subStatus || null;
-                task.type = payload.type || task.type;
-                task.level = payload.level || payload.type || task.level || 'Task';
-                task.priority = payload.priority || 'Medium';
-                task.assignees = Array.isArray(payload.assignees) ? payload.assignees : [];
-                task.owner = task.assignees;
-                task.tags = payload.tags;
-                task.depends_on = payload.depends_on;
-                task.block_reason = payload.block_reason || undefined;
-                task.checklist = payload.checklist;
+                                task.title = payload.title;
+                                task.description = payload.description;
+                                task.module = payload.module || undefined;
+                                task.status = payload.status;
+                                task.subStatus = payload.subStatus || null;
+                                task.type = payload.type || task.type;
+                                task.level = payload.level || payload.type || task.level || 'Task';
+                                task.priority = payload.priority || 'Medium';
+                                task.assignees = Array.isArray(payload.assignees) ? payload.assignees : [];
+                                task.owner = task.assignees;
+                                task.tags = payload.tags;
+                                task.depends_on = payload.depends_on;
+                                task.block_reason = payload.block_reason || undefined;
+                                task.checklist = payload.checklist;
 
-                const saveDate = (value, fallback) => (value ? toUtcIso(value) : fallback);
-                task.created_at = saveDate(payload.created_at, task.created_at);
-                task.started_at = saveDate(payload.started_at, task.started_at);
-                task.finished_at = saveDate(payload.finished_at, task.finished_at);
-                task.due_at = saveDate(payload.due_at, task.due_at);
+                                const saveDate = (value, fallback) => (value ? toUtcIso(value) : fallback);
+                                task.created_at = saveDate(payload.created_at, task.created_at);
+                                task.started_at = saveDate(payload.started_at, task.started_at);
+                                task.finished_at = saveDate(payload.finished_at, task.finished_at);
+                                task.due_at = saveDate(payload.due_at, task.due_at);
 
-                if (task.status === 'To Do') {
-                        task.started_at = undefined;
-                        task.finished_at = undefined;
-                } else if (['Designing', 'In Progress', 'Code Review', 'QA'].includes(task.status)) {
-                        if (!task.started_at) task.started_at = nowISO();
-                        task.finished_at = undefined;
-                } else if (task.status === 'Done' && !task.finished_at) {
-                        task.finished_at = nowISO();
-                }
+                                if (task.status === 'To Do') {
+                                        task.started_at = undefined;
+                                        task.finished_at = undefined;
+                                } else if (['Designing', 'In Progress', 'Code Review', 'QA'].includes(task.status)) {
+                                        if (!task.started_at) task.started_at = nowISO();
+                                        task.finished_at = undefined;
+                                } else if (task.status === 'Done' && !task.finished_at) {
+                                        task.finished_at = nowISO();
+                                }
 
-                next.events = next.events || [];
-                next.events.push({
-                        id: `e-${(next.events.length || 0) + 1}`,
-                        time: nowISO(),
-                        type: 'update',
-                        task_id: task.id,
-                        user: 'human',
-                });
-                next.board.last_update = nowISO();
-                updateActiveProjectData(next);
+                                draft.events = draft.events || [];
+                                draft.events.push({
+                                        id: `e-${(draft.events.length || 0) + 1}`,
+                                        time: nowISO(),
+                                        type: 'update',
+                                        task_id: task.id,
+                                        user: 'human',
+                                });
+                                draft.board.last_update = nowISO();
+                                return draft;
+                        },
+                        { reason: 'manual-edit-task', taskId: edit.id },
+                );
                 setEdit(null);
         }
 
@@ -996,9 +1081,21 @@ export function AppContainer() {
 
         function handleConfirmAiTaskAdds() {
                 if (!pendingTaskCreation) return;
-                const { baseData, patches, previewTasks = [], source } = pendingTaskCreation;
-                const dataWithNewTasks = applyPatch(baseData, patches);
-                updateActiveProjectData(dataWithNewTasks);
+                const { patches, previewTasks = [], source } = pendingTaskCreation;
+                logDebugEvent({
+                        event: 'ai-patch:accepted',
+                        patchCount: patches?.length || 0,
+                        previewCount: previewTasks.length,
+                        source: source || 'kanban_chat',
+                });
+                updateActiveProjectData(
+                        (draft) => applyPatch(draft, patches),
+                        {
+                                reason: 'ai-patch:confirmed',
+                                source: source || 'kanban_chat',
+                                previewCount: previewTasks.length,
+                        },
+                );
                 setPendingTaskCreation(null);
                 setMessage({
                         title: 'AI 新任务已添加',
