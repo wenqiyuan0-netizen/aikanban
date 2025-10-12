@@ -10,43 +10,51 @@ export function WorldInfoSetup({
         setIsAiThinking,
         apiKey,
         setMessage,
-        chat,
+        worldChat,
         appendChat,
         inputRef,
 }) {
         useEffect(() => {
-                if (chat.length === 0) {
-                        appendChat({
-                                role: 'ai',
-                                text: '嘿，朋友！欢迎进入项目世界信息设置模式。请告诉我您的**项目名称**、**目标**和**主要截止日期**，我会用最亲昵的方式帮助您初始化项目规则。',
-                                time: new Date().toLocaleTimeString(),
-                        });
+                if (worldChat.length === 0) {
+                        appendChat(
+                                {
+                                        role: 'ai',
+                                        text: '嘿，朋友！欢迎进入项目世界信息设置模式。请告诉我您的**项目名称**、**目标**和**主要截止日期**，我会用最亲昵的方式帮助您初始化项目规则。',
+                                        time: new Date().toLocaleTimeString(),
+                                },
+                                APP_MODES.WORLD_INFO_SETUP,
+                        );
                 }
-        }, [chat.length, appendChat]);
+        }, [worldChat.length, appendChat]);
 
         async function sendWorldMsg() {
                 const text = (inputRef.current?.value || '').trim();
                 if (!text || isAiThinking) return;
 
                 const userMessage = { role: 'user', text, time: new Date().toLocaleTimeString() };
-                appendChat(userMessage);
+                appendChat(userMessage, APP_MODES.WORLD_INFO_SETUP);
                 inputRef.current.value = '';
                 setIsAiThinking(true);
 
                 try {
-                        const chatHistory = chat.slice(-3).map((message) => `[${message.role}]: ${message.text}`).join('\n');
+                        const chatHistory = [...worldChat, userMessage]
+                                .map((message) => `[${message.role}]: ${message.text}`)
+                                .join('\n');
                         const fullPrompt = `
                                 【当前世界信息】: 这是您已经收集到的项目元数据。
                                 ${JSON.stringify(currentWorldInfo, null, 2)}
                                 ---
-                                历史对话 (最近三轮):\n${chatHistory}\n
+                                历史对话:\n${chatHistory}\n
                                 ---
                                 用户输入：${text}
                         `;
 
                         const parsedResponse = await generatePatch(apiKey, APP_MODES.WORLD_INFO_SETUP, fullPrompt);
 
-                        appendChat({ role: 'ai', text: parsedResponse.ai_response, time: new Date().toLocaleTimeString() });
+                        appendChat(
+                                { role: 'ai', text: parsedResponse.ai_response, time: new Date().toLocaleTimeString() },
+                                APP_MODES.WORLD_INFO_SETUP,
+                        );
 
                         if (parsedResponse.status === 'COMPLETE' && parsedResponse.world_patch) {
                                 setWorldInfo(parsedResponse.world_patch);
@@ -83,7 +91,7 @@ export function WorldInfoSetup({
                                 </button>
                         </div>
                         <div className='flex-1 p-4 overflow-y-auto flex flex-col'>
-                                {chat.map((message, index) => (
+                                {worldChat.map((message, index) => (
                                         <div
                                                 key={index}
                                                 className={`mb-3 p-2 rounded-lg max-w-[90%] ${message.role === 'user' ? 'bg-indigo-50 text-slate-900 self-end ml-auto' : 'bg-gray-100 text-slate-700 self-start mr-auto'}`}

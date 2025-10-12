@@ -1,6 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AreaChart, XAxis, YAxis, CartesianGrid, Tooltip, Area, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { Column, Card, AddTaskModal, MessageBox, ResetConfirmModal, ClearTasksConfirmModal, DeleteConfirmModal } from './components/UIComponents';
+import {
+        Column,
+        Card,
+        AddTaskModal,
+        MessageBox,
+        ResetConfirmModal,
+        ClearTasksConfirmModal,
+        DeleteConfirmModal,
+        AiTaskConfirmModal,
+} from './components/UIComponents';
 import { WorldInfoSetup } from './components/WorldInfoSetup';
 import { APP_MODES } from './app/constants/appModes';
 import { getModuleColor, COLUMN_COLORS, COLUMN_ORDER } from './app/constants/colors';
@@ -42,15 +51,20 @@ export default function App() {
         const [apiKey] = useState(initialApiKey);
         const [isAiThinking, setIsAiThinking] = useState(false);
 
-        const [chat, setChat] = useState([
-                {
-                        role: 'system',
-                        text: 'AI-Agent 已连接，已升级为【增量补丁模式】。**Blocked 状态已移除**，请使用 `block_reason` 属性来标记任务阻塞。',
-                },
-        ]);
+        const [chatLogs, setChatLogs] = useState({
+                kanban: [
+                        {
+                                role: 'system',
+                                text: 'AI-Agent 已连接，已升级为【增量补丁模式】。**Blocked 状态已移除**，请使用 `block_reason` 属性来标记任务阻塞。',
+                        },
+                ],
+                world: [],
+        });
         const inputRef = useRef(null);
 
         const worldInfo = data.worldInfo;
+
+        const [pendingTaskCreation, setPendingTaskCreation] = useState(null);
 
         useEffect(() => {
                 saveData(data);
@@ -195,7 +209,7 @@ export default function App() {
         }
 
         function exportChatLog() {
-                exportFile('chat_log.json', chat);
+                exportFile('chat_log.json', chatLogs);
         }
 
         function resetAll() {
@@ -315,21 +329,24 @@ export default function App() {
                 }
 
                 const userMessage = { role: 'user', text, time: new Date().toLocaleTimeString() };
-                appendChat(userMessage);
+                appendChat(userMessage, APP_MODES.KANBAN);
                 inputRef.current.value = '';
                 setIsAiThinking(true);
 
                 try {
+                        const kanbanChat = chatLogs.kanban || [];
                         const insights = buildInsights(data);
                         const fullBoardState = clone(data);
                         const world = fullBoardState.worldInfo || {};
-                        const chatHistory = chat.slice(-3).map((m) => `[${m.role}]: ${m.text}`).join('\n');
+                        const chatHistory = [...kanbanChat, userMessage]
+                                .map((m) => `[${m.role}]: ${m.text}`)
+                                .join('\n');
 
                         const fullPrompt = `
                                 【世界信息 World Info】: 这描述了项目的基本规则、目标和背景。
                                 ${JSON.stringify(world, null, 2)}
                                 ---
-                                历史对话 (最近三轮):\n${chatHistory}\n
+                                历史对话:\n${chatHistory}\n
                                 ---
                                 当前看板的健康状态分析（请参考此分析来识别风险，但只有在高风险时才主动建议）：\n${JSON.stringify(insights, null, 2)}\n\n
                                 当前看板的完整 Board State (包含 tasks, members, columns)：\n${JSON.stringify(fullBoardState, null, 2)}\n\n
@@ -338,16 +355,77 @@ export default function App() {
 
                         const parsedResponse = await generatePatch(apiKey, APP_MODES.KANBAN, fullPrompt);
 
-                        appendChat({
-                                role: 'ai',
-                                text: parsedResponse.ai_response || '（AI 未返回回复文本）',
-                                time: new Date().toLocaleTimeString(),
-                        });
+                        appendChat(
+                                {
+                                        role: 'ai',
+                                        text: parsedResponse.ai_response || '（AI 未返回回复文本）',
+                                        time: new Date().toLocaleTimeString(),
+                                },
+                                APP_MODES.KANBAN,
+                        );
 
                         const patches = parsedResponse.patch_instructions;
                         if (Array.isArray(patches) && patches.length > 0) {
-                                const updatedData = applyPatch(data, patches);
-                                setData(updatedData);
+                                const normalizedPatches = patches.map((patch) => {
+                                        if (patch?.type === 'task_add' && patch.details) {
+                                                return {
+                                                        ...patch,
+                                                        details: {
+                                                                ...patch.details,
+                                                                id:
+                                                                        patch.details.id ||
+                                                                        `t-${Math.random().toString(36).slice(2, 8)}${Date.now()}`,
+                                                        },
+                                                };
+                                        }
+                                        return patch;
+                                });
+
+                                const newTaskIds = new Set();
+                                const immediatePatches = [];
+                                const deferredPatches = [];
+
+                                normalizedPatches.forEach((patch) => {
+                                        if (patch.type === 'task_add' && patch.details?.id) {
+                                                newTaskIds.add(patch.details.id);
+                                                deferredPatches.push(patch);
+                                                return;
+                                        }
+
+                                        if (patch.type === 'task_update' && newTaskIds.has(patch.id)) {
+                                                deferredPatches.push(patch);
+                                                return;
+                                        }
+
+                                        if (patch.type === 'event_add' && newTaskIds.has(patch.details?.task_id)) {
+                                                deferredPatches.push(patch);
+                                                return;
+                                        }
+
+                                        immediatePatches.push(patch);
+                                });
+
+                                let baseData = data;
+                                if (immediatePatches.length > 0) {
+                                        baseData = applyPatch(data, immediatePatches);
+                                        setData(baseData);
+                                }
+
+                                if (deferredPatches.length > 0) {
+                                        const previewTasks = deferredPatches
+                                                .filter((patch) => patch.type === 'task_add' && patch.details)
+                                                .map((patch) => patch.details);
+
+                                        setPendingTaskCreation({
+                                                baseData,
+                                                patches: deferredPatches,
+                                                previewTasks,
+                                        });
+                                } else {
+                                        setPendingTaskCreation(null);
+                                }
+                        } else {
+                                setPendingTaskCreation(null);
                         }
                 } catch (error) {
                         console.error('[CONSOLE_ERROR] AI API Error:', error);
@@ -360,12 +438,39 @@ export default function App() {
                 }
         }
 
-        function appendChat(message) {
-                setChat((current) => [...current, message]);
+        function appendChat(message, mode = APP_MODES.KANBAN) {
+                const channel = mode === APP_MODES.WORLD_INFO_SETUP ? 'world' : 'kanban';
+                setChatLogs((current) => ({
+                        ...current,
+                        [channel]: [...(current[channel] || []), message],
+                }));
                 setTimeout(() => {
                         const chatWindow = document.querySelector('.flex-1.p-4.overflow-y-auto');
                         if (chatWindow) chatWindow.scrollTop = chatWindow.scrollHeight;
                 }, 50);
+        }
+
+        function handleConfirmAiTaskAdds() {
+                if (!pendingTaskCreation) return;
+                const { baseData, patches } = pendingTaskCreation;
+                const dataWithNewTasks = applyPatch(baseData, patches);
+                setData(dataWithNewTasks);
+                setPendingTaskCreation(null);
+                setMessage({
+                        title: 'AI 新任务已添加',
+                        body: '根据 AI 建议完成新任务创建，请继续在“项目世界信息设置”中补充上下文。',
+                        type: 'success',
+                });
+                setAppMode(APP_MODES.WORLD_INFO_SETUP);
+        }
+
+        function handleCancelAiTaskAdds() {
+                setPendingTaskCreation(null);
+                setMessage({
+                        title: '已取消 AI 新任务创建',
+                        body: '已保留其他看板调整，未添加新的任务条目。',
+                        type: 'info',
+                });
         }
 
         return (
@@ -423,7 +528,7 @@ export default function App() {
                                                 setIsAiThinking={setIsAiThinking}
                                                 apiKey={apiKey}
                                                 setMessage={setMessage}
-                                                chat={chat}
+                                                worldChat={chatLogs.world}
                                                 appendChat={appendChat}
                                                 inputRef={inputRef}
                                         />
@@ -431,7 +536,7 @@ export default function App() {
                                         <section className='rounded-2xl bg-white border shadow-xl flex flex-col overflow-hidden h-[80vh] md:h-full'>
                                                 <div className='px-4 py-3 border-b text-base font-semibold text-slate-700 bg-gray-50'>AI 对话区（增量 Agent）</div>
                                                 <div className='flex-1 p-4 overflow-y-auto flex flex-col'>
-                                                        {chat.map((m, i) => (
+                                                        {(chatLogs.kanban || []).map((m, i) => (
                                                                 <div key={i} className={`mb-3 p-2 rounded-lg max-w-[90%] ${m.role === 'user' ? 'bg-indigo-50 text-slate-900 self-end ml-auto' : 'bg-gray-100 text-slate-700 self-start mr-auto'}`}>
                                                                         <div className='text-[13px]'>
                                                                                 <span className={`font-bold ${m.role === 'user' ? 'text-indigo-600' : 'text-emerald-600'}`}>
@@ -673,6 +778,14 @@ export default function App() {
                         {showClearTasksConfirm && <ClearTasksConfirmModal onClose={() => setShowClearTasksConfirm(false)} onConfirm={handleClearTasksConfirm} />}
 
                         {taskToDelete && <DeleteConfirmModal task={taskToDelete} onClose={() => setTaskToDelete(null)} onConfirm={handleDeleteTaskConfirm} />}
+
+                        {pendingTaskCreation && (
+                                <AiTaskConfirmModal
+                                        tasks={pendingTaskCreation.previewTasks}
+                                        onConfirm={handleConfirmAiTaskAdds}
+                                        onCancel={handleCancelAiTaskAdds}
+                                />
+                        )}
 
                         {showAddTaskModal && <AddTaskModal onClose={() => setShowAddTaskModal(false)} onSave={handleAddTaskSubmit} />}
 

@@ -157,23 +157,38 @@ export function AddTaskModal({ onClose, onSave }) {
  * - 展示操作成功或错误提示
  * -------------------------------------------------------------------------- */
 export function MessageBox({ message, onClose }) {
-	if (!message) return null;
+        if (!message) return null;
 
-	const isSuccess = message.type === 'success';
-	const colorClass = isSuccess ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700';
-	const titleColor = isSuccess ? 'text-emerald-600' : 'text-red-600';
+        const type = message.type || 'info';
+        let colorClass = 'bg-indigo-600 hover:bg-indigo-700';
+        let titleColor = 'text-indigo-600';
+        let buttonLabel = '好的';
 
-	return (
-		<Modal onClose={onClose}>
-			<h3 className={`text-lg font-bold mb-4 ${titleColor}`}>{message.title}</h3>
-			<p className="text-sm text-gray-700 whitespace-pre-wrap">{message.body}</p>
-			<div className="mt-6 flex justify-end">
-				<button onClick={onClose} className={`px-4 py-2 rounded-lg text-white text-sm ${colorClass}`}>
-					{isSuccess ? '好的' : '关闭'}
-				</button>
-			</div>
-		</Modal>
-	);
+        if (type === 'success') {
+                colorClass = 'bg-emerald-600 hover:bg-emerald-700';
+                titleColor = 'text-emerald-600';
+                buttonLabel = '好的';
+        } else if (type === 'error') {
+                colorClass = 'bg-red-600 hover:bg-red-700';
+                titleColor = 'text-red-600';
+                buttonLabel = '关闭';
+        } else if (type === 'info') {
+                colorClass = 'bg-indigo-600 hover:bg-indigo-700';
+                titleColor = 'text-indigo-600';
+                buttonLabel = '知道了';
+        }
+
+        return (
+                <Modal onClose={onClose}>
+                        <h3 className={`text-lg font-bold mb-4 ${titleColor}`}>{message.title}</h3>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{message.body}</p>
+                        <div className="mt-6 flex justify-end">
+                                <button onClick={onClose} className={`px-4 py-2 rounded-lg text-white text-sm ${colorClass}`}>
+                                        {buttonLabel}
+                                </button>
+                        </div>
+                </Modal>
+        );
 }
 
 /* --------------------------------------------------------------------------
@@ -226,10 +241,10 @@ export function ClearTasksConfirmModal({ onClose, onConfirm }) {
  * ⚫ DeleteConfirmModal（删除任务确认框）
  * -------------------------------------------------------------------------- */
 export function DeleteConfirmModal({ task, onClose, onConfirm }) {
-	if (!task) return null;
+        if (!task) return null;
 
-	return (
-		<Modal onClose={onClose}>
+        return (
+                <Modal onClose={onClose}>
 			<h3 className="text-lg font-bold mb-4 text-rose-600">❌ 确认删除任务</h3>
 			<p className="text-sm text-gray-700">
 				确定要永久删除任务
@@ -244,6 +259,55 @@ export function DeleteConfirmModal({ task, onClose, onConfirm }) {
 					确认删除
 				</button>
 			</div>
-		</Modal>
-	);
+                </Modal>
+        );
+}
+
+/* --------------------------------------------------------------------------
+ * 🟣 AiTaskConfirmModal（AI 新建任务确认框）
+ * -------------------------------------------------------------------------- */
+export function AiTaskConfirmModal({ tasks = [], onConfirm, onCancel }) {
+        return (
+                <Modal onClose={onCancel}>
+                        <h3 className="text-lg font-bold mb-3 text-indigo-600">🤖 AI 建议创建新任务</h3>
+                        <p className="text-sm text-gray-700 leading-relaxed">
+                                看板 AI 识别到需要补充新的任务。请确认以下任务是否需要创建。
+                                <br />确认后将立即添加到看板，并自动跳转到「项目世界信息设置」以补充上下文。
+                        </p>
+                        <div className="mt-4 max-h-60 overflow-y-auto space-y-3">
+                                {tasks.length === 0 && (
+                                        <div className="text-sm text-gray-500">AI 未提供任务详情。</div>
+                                )}
+                                {tasks.map((task, index) => (
+                                        <div key={task.id || index} className="border rounded-xl p-3 bg-gray-50">
+                                                <div className="text-sm font-semibold text-slate-800 flex justify-between">
+                                                        <span>{task.title || '未命名任务'}</span>
+                                                        <span className="text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                                                                {task.level || 'Task'}
+                                                        </span>
+                                                </div>
+                                                <div className="text-xs text-gray-500 mt-1">
+                                                        模块：{task.module || '未指定'} · 负责人：{(task.owner || []).join(', ') || '待分配'}
+                                                </div>
+                                                {task.depends_on?.length > 0 && (
+                                                        <div className="text-xs text-gray-500 mt-1">
+                                                                依赖：{task.depends_on.join(', ')}
+                                                        </div>
+                                                )}
+                                                {task.notes && (
+                                                        <div className="text-xs text-gray-500 mt-1">备注：{task.notes}</div>
+                                                )}
+                                        </div>
+                                ))}
+                        </div>
+                        <div className="mt-6 flex justify-end gap-3">
+                                <button onClick={onCancel} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm">
+                                        稍后再说
+                                </button>
+                                <button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">
+                                        确认并前往配置
+                                </button>
+                        </div>
+                </Modal>
+        );
 }
