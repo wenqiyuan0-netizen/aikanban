@@ -30,6 +30,7 @@ This repository contains an AI-assisted project management workspace that combin
 - 🔧 **User preference model empty**：`userPreferences` 占位字段尚未填充，影响个性化 prompt。
 - 🔧 **Archived project UX**：旧项目意图目前仅弹出信息提示，目录/动画/数据回填界面尚待实现。
 - ⚙️ **Classifier false positives**：轻量 Agent 仍可能把小规模任务更新判断为新项目指令，后续需通过提示词与示例继续校准。
+- 🚨 **Retroactive history conflicts（历史事件冲突风险）**：当看板 Agent 通过 `event_add` 或修改任务时间戳来“补写过去”时，存在与既有事件顺序矛盾的风险（例如在任务标记为 `Done` 之后，又插入该任务的“开始”事件）。目前已通过更严格的 Prompt 约束其在修改历史前必须验证时间线一致性，如需真正重写历史必须向用户确认；后续仍需加入自动回归测试与冲突检测。 
 
 ## Multi-agent focus · 多 Agent 协同重点
 
