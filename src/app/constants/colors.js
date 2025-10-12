@@ -2,36 +2,37 @@
  * File Overview · 文件说明
  * -----------------------------------------------------------------------------
  * Completed / 已完成:
- * - 维护模块与列的颜色映射，帮助 UI 组件根据模块/列名渲染统一的 Tailwind 样式与图表颜色。
+ * - Maintains colour palettes for modules and column statuses so the new Kanban
+ *   board can render consistent styling, WIP warnings, and hover tooltips.
  *
  * Implementation Notes / 实现方式:
- * - `MODULE_COLORS`、`COLUMN_COLORS`、`COLUMN_ORDER` 均以对象/数组形式导出，供 Kanban 视图与图表模块复用。
- * - `getModuleColor` 提供安全回退，避免未知模块导致样式缺失。
+ * - 增加了与 README 描述一致的列顺序（To Do → Designing → In Progress → Code Review → QA → Done）。
+ * - `COLUMN_PALETTE` 采用中国传统色色系近似值，AI 若返回自定义颜色时可映射到该表。
  *
  * Pending / 未完成:
- * - 尚未支持暗色模式 / 自定义主题。
- * - 缺少多语言映射（列名硬编码为英文）。
+ * - 暂未引入暗色模式与动态主题。
+ * - 模块颜色仍为静态映射，未来可结合世界信息自动生成。
  *
  * Next Steps / 后续计划:
- * - 将颜色配置纳入主题系统，允许管理员动态调整。
- * - 与国际化方案结合，为列名提供键值映射而非直接字符串。
+ * - 构建颜色校正器，根据 AI 反馈的十六进制颜色映射到最近的传统色。
  */
 export const MODULE_COLORS = {
-        IIOT: 'border-blue-400 bg-blue-50/50',
-        TT: 'border-green-400 bg-green-50/50',
-        GET: 'border-purple-400 bg-purple-50/50',
-        WS: 'border-yellow-400 bg-yellow-50/50',
-        EMS: 'border-red-400 bg-red-50/50',
+        'Prompt 系统': 'border-amber-400 bg-amber-50/60',
+        '看板引擎': 'border-indigo-400 bg-indigo-50/60',
+        '美术风格': 'border-rose-300 bg-rose-50/60',
+        '本地存储': 'border-emerald-400 bg-emerald-50/60',
         DEFAULT: 'border-gray-200 bg-white',
 };
 
 export const getModuleColor = (module) => MODULE_COLORS[module] || MODULE_COLORS.DEFAULT;
 
 export const COLUMN_COLORS = {
-        'To Do': { key: 'todo', color: '#64748B' },
-        'In Progress': { key: 'doing', color: '#3B82F6' },
-        'Review': { key: 'review', color: '#F59E0B' },
-        'Done': { key: 'done', color: '#10B981' },
+        'To Do': { key: 'todo', color: '#5C6F82' },
+        Designing: { key: 'design', color: '#7C3AED' },
+        'In Progress': { key: 'in_progress', color: '#2563EB' },
+        'Code Review': { key: 'code_review', color: '#F97316' },
+        QA: { key: 'qa', color: '#0EA5E9' },
+        Done: { key: 'done', color: '#10B981' },
 };
 
-export const COLUMN_ORDER = ['To Do', 'In Progress', 'Review', 'Done'];
+export const COLUMN_ORDER = ['To Do', 'Designing', 'In Progress', 'Code Review', 'QA', 'Done'];

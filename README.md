@@ -17,6 +17,7 @@ This repository contains an AI-assisted project management workspace that combin
 | Project reset scaffolding | ✅ | 引入 `projectFlow` 状态机、确认弹窗钩子与世界信息界面切换逻辑。|
 | Lightweight classifier gating | 🟡 | 现在在看板输入前触发判定并记录 `intentLog`，旧项目分支仍待对接 UI。|
 | Module documentation | ✅ | 核心模块提供双语注释，说明职责与未完事项。|
+| Manual Kanban board UX | ✅ | 支持泳道、子列、拖拽、批量筛选、列表/图表视图与数据导出，人工操作即可完成全流程。|
 | Multi-language toggle | ⏳ | UI 预留多语言切换位，尚未接入 `i18n` 工具链。|
 | Agent prompt library | ⏳ | 初步列出 prompt 层级，仍需实现正式模板与版本管理。|
 | Old project revival UX | ⏳ | 数据结构已预留 `archivedProjects`，界面切换与动画待完成。|
@@ -30,7 +31,8 @@ This repository contains an AI-assisted project management workspace that combin
 - 🔧 **User preference model empty**：`userPreferences` 占位字段尚未填充，影响个性化 prompt。
 - 🔧 **Archived project UX**：旧项目意图目前仅弹出信息提示，目录/动画/数据回填界面尚待实现。
 - ⚙️ **Classifier false positives**：轻量 Agent 仍可能把小规模任务更新判断为新项目指令，后续需通过提示词与示例继续校准。
-- 🚨 **Retroactive history conflicts（历史事件冲突风险）**：当看板 Agent 通过 `event_add` 或修改任务时间戳来“补写过去”时，存在与既有事件顺序矛盾的风险（例如在任务标记为 `Done` 之后，又插入该任务的“开始”事件）。目前已通过更严格的 Prompt 约束其在修改历史前必须验证时间线一致性，如需真正重写历史必须向用户确认；后续仍需加入自动回归测试与冲突检测。 
+- 🗓️ **Calendar view 未实现**：UI 预留入口但尚无日历渲染，需要在后续迭代中补充。
+- 🚨 **Retroactive history conflicts（历史事件冲突风险）**：当看板 Agent 通过 `event_add` 或修改任务时间戳来“补写过去”时，存在与既有事件顺序矛盾的风险（例如在任务标记为 `Done` 之后，又插入该任务的“开始”事件）。目前已通过更严格的 Prompt 约束其在修改历史前必须验证时间线一致性，如需真正重写历史必须向用户确认；后续仍需加入自动回归测试与冲突检测。
 
 ## Multi-agent focus · 多 Agent 协同重点
 
@@ -108,8 +110,44 @@ flowchart TD
 | `intentLog` | `workspace.projects[projectId].intentLog` | 轻量判定 Agent 的历史结果，帮助后续 prompt 调整语气或解释分类原因。|
 | `userPreferences` | 预留字段 | 尚未填充的个性化设定，未来会同步到看板 prompt 中定义风格和提醒方式。|
 | `worldInfoEntryContext` | `projectFlow` 上下文 | 触发世界信息流程的来源（新项目/AI 新任务/手动进入），在 prompt 中提示 AI 避免引用旧项目上下文。|
+| `boardFilters` | `workspace.projects[projectId].data.board.filters` | 当前启用的快速筛选器 ID 列表与搜索关键词。|
+| `boardSwimlaneStrategy` | `workspace.projects[projectId].data.board.swimlanes.defaultStrategy` | 泳道分组依据（module/assignee/priority/type）。|
+| `boardViewMode` | `workspace.projects[projectId].data.board.view` | 当前界面视图（board/list/cfd/burndown），帮助 AI 判断呈现方式。|
+| `boardWipAlerts` | `buildBoardModel(...).wipAlerts` | 本地检测的 WIP 超限信息清单，供 AI 做瓶颈提示。|
+| `boardLaneBreakdown` | `buildBoardModel(...).lanes` | 泳道 → 列 → 任务映射，用于生成分模块总结或导出指令。|
 
 > 📌 提示：看板 Agent 的 prompt 在迎接用户回到看板时会收到以上所有字段；当世界信息 Agent 完成配置后，系统会主动发送欢迎语，并强制要求本回合的 `patch_instructions` 为空数组，避免未确认的自动改动。
+
+## Manual Kanban board capabilities · 手动看板能力总览
+
+> 依据用户提出的 A/B/C/D 需求，前端已实现无 AI 也能完整操作的看板功能。以下记录对应模块与 prompt 变量，方便后续扩展。
+
+### A. Cards / Tasks
+
+- **结构化字段**：任务字段包含 `id`、`title`、`description`、`type`、`level`、`priority`、`assignees`、`module`、`tags`、`subStatus` 等，来源 `data.tasks`。
+- **Checklist / 子任务**：以 `task.checklist`（`[{id,title,done}]`）表示，UI 显示进度条并在 hover 时展开明细。
+- **时间轴**：保留 `created_at`、`started_at`、`finished_at`、`due_at`、`activity`，用于指标计算及 prompt 说明。
+- **附注**：`attachments` 与 `comments` 字段已预留，后续可接入上传能力。
+- **Prompt 引用**：`boardState.tasks`、`boardLaneBreakdown`、`boardWipAlerts` 将任务与泳道结构传递给看板 Agent。
+
+### B. Columns / Stages
+
+- **列模型**：`data.board.columns` 支持 `wip_limit`、`subColumns` 字段，UI 渲染主列 + 子列，并在超限时通过 `boardWipAlerts` 告警。
+- **拖拽约束**：`enforceLinearWorkflow` 依据 `COLUMN_ORDER` 阻止跨越式移动，拖拽事件写入 `events`。
+- **Prompt 引用**：`metrics.statusOrder`、`boardWipAlerts`、`boardLaneBreakdown` 提供列顺序与瓶颈信息。
+
+### C. Swimlanes
+
+- **策略存储**：`data.board.swimlanes.defaultStrategy` 记录当前泳道模式（module/assignee/priority/type）。
+- **多责任人支持**：负责人泳道会复制卡片至多条泳道，Prompt 可从 `boardLaneBreakdown` 获取聚合数据。
+- **UI 操作**：`onChangeSwimlane` 更新策略并持久化为 `boardSwimlaneStrategy`。
+
+### D. Filters & Views
+
+- **快速筛选**：按钮映射 `QUICK_FILTERS`，状态保存在 `boardFilters.quick`。
+- **文本搜索**：`boardFilters.searchText` 存放当前关键字。
+- **视图切换**：`data.board.view` 记录 `board/list/cfd/burndown`，`calendar` 入口已预留待实现。
+- **数据导出**：`handleBoardExport(format)` 支持 JSON/CSV 导出，可在 Prompt 提示用户“导出”操作依赖该函数。
 
 ## End-to-end usage walkthrough · 用户使用流程
 
@@ -176,6 +214,7 @@ flowchart TD
 3. **Kanban reboot handshake**：实现世界信息 -> 看板的 prompt 交接、初始任务生成确认、虚拟时间同步入口。
    **完成后更新 README：** 说明初始任务生成策略与用户覆盖选项。
    - Build log（2025-05-30）：新增自动欢迎流程与 `patch_instructions=[]` 约束，避免世界信息确认后仍需手动发送指令。
+   - Build log（2025-05-31）：重写手动看板界面（泳道/子列/筛选/列表/导出），并引入 `boardFilters`、`boardSwimlaneStrategy`、`boardLaneBreakdown` 等 prompt 变量以同步人工操作上下文。
 4. **Archived project explorer**：实现目录视图、旧项目动画切换、合并流程；补齐 `archivedProjects` schema。
    **完成后更新 README：** 发布旧项目唤醒 UX 截图与数据结构示例。
 5. **i18n integration & UI polish**：导入 `i18next`，实现主题色映射、组件美化与可视化（燃尽图、CDF、WIP 等）优化。

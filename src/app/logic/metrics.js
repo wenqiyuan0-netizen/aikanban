@@ -2,71 +2,84 @@
  * File Overview · 文件说明
  * -----------------------------------------------------------------------------
  * Completed / 已完成:
- * - 计算看板核心指标：任务计数、点数、吞吐量、在制品、Lead/Cycle 时间、WIP 违规等。
+ * - 重新定义看板指标计算逻辑，使其匹配新版列模型（Designing、In Progress、Code Review、QA 等）。
+ * - 输出更丰富的统计数据：按责任人聚合的工作量、列 WIP 告警、以及传递给 Prompt 的 `statusOrder`。
  *
  * Implementation Notes / 实现方式:
- * - 结合任务状态与事件时间戳，输出综合指标对象供仪表板与 AI Prompt 使用。
- * - 使用工具函数 `daysBetween`、`getTaskPoints` 保证时间与点数计算一致。
+ * - 通过 `aggregateByAssignee` 与列配置动态推导统计项，避免硬编码。
+ * - 保留 `issues` 列表供 AI 与人工 UI 共用，确保提示信息一致。
  *
  * Pending / 未完成:
- * - 未实现团队容量预测、SLA 告警等高级指标。
- * - 缺少针对虚拟时间轴或多项目并行的聚合逻辑。
+ * - 尚未加入 SLA、吞吐量趋势预测等高级指标。
+ * - 多项目聚合与虚拟时间轴尚未实现。
  *
  * Next Steps / 后续计划:
- * - 将指标拆分为可配置的 selector，允许根据项目类型启用/禁用。
- * - 增加指标缓存与比较功能，支持旧项目回放时的历史对比。
+ * - 输出按泳道的吞吐量分析，结合世界信息 Agent 的模块规划。
  */
-import { DURATION_THRESHOLDS, getTaskPoints } from '../constants/task';
+import { DURATION_THRESHOLDS, getAssigneeList, getTaskPoints } from '../constants/task';
+import { COLUMN_ORDER } from '../constants/colors';
 import { daysBetween, nowISO } from '../utils/dateUtils';
 
 export function computeMetrics(data) {
         const tasks = data.tasks || [];
         const getPoints = (task) => getTaskPoints(task.level);
 
-        const done = tasks.filter((task) => task.status === 'Done');
-        const doing = tasks.filter((task) => task.status === 'In Progress');
-        const todo = tasks.filter((task) => task.status === 'To Do');
-        const review = tasks.filter((task) => task.status === 'Review');
-        const blocked = tasks.filter((task) => task.status !== 'Done' && task.block_reason);
+        const buckets = {
+                done: tasks.filter((task) => task.status === 'Done'),
+                todo: tasks.filter((task) => task.status === 'To Do'),
+                designing: tasks.filter((task) => task.status === 'Designing'),
+                inProgress: tasks.filter((task) => task.status === 'In Progress'),
+                codeReview: tasks.filter((task) => task.status === 'Code Review'),
+                qa: tasks.filter((task) => task.status === 'QA'),
+        };
+
+        const wipBuckets = [...buckets.designing, ...buckets.inProgress, ...buckets.codeReview, ...buckets.qa];
 
         const totalPoints = tasks.reduce((sum, task) => sum + getPoints(task), 0);
-        const donePoints = done.reduce((sum, task) => sum + getPoints(task), 0);
-        const doingPoints = doing.reduce((sum, task) => sum + getPoints(task), 0);
-        const reviewPoints = review.reduce((sum, task) => sum + getPoints(task), 0);
+        const donePoints = buckets.done.reduce((sum, task) => sum + getPoints(task), 0);
+        const designingPoints = buckets.designing.reduce((sum, task) => sum + getPoints(task), 0);
+        const inProgressPoints = buckets.inProgress.reduce((sum, task) => sum + getPoints(task), 0);
+        const reviewPoints = buckets.codeReview.concat(buckets.qa).reduce((sum, task) => sum + getPoints(task), 0);
 
         const average = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
-        const leadDurations = done.map((task) => daysBetween(task.created_at, task.finished_at)).filter(Boolean);
-        const cycleDurations = done
+        const leadDurations = buckets.done.map((task) => daysBetween(task.created_at, task.finished_at)).filter(Boolean);
+        const cycleDurations = buckets.done
                 .map((task) => daysBetween(task.started_at || task.created_at, task.finished_at))
                 .filter(Boolean);
 
         const now = new Date();
         const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
-        const throughput7d = done
+        const throughput7d = buckets.done
                 .filter((task) => task.finished_at && new Date(task.finished_at) >= sevenDaysAgo)
                 .reduce((sum, task) => sum + getPoints(task), 0);
+
+        const wipPoints = wipBuckets.reduce((sum, task) => sum + getPoints(task), 0);
 
         return {
                 total: tasks.length,
                 totalPoints,
                 counts: {
-                        done: done.length,
-                        doing: doing.length,
-                        todo: todo.length,
-                        review: review.length,
-                        blocked: blocked.length,
+                        done: buckets.done.length,
+                        todo: buckets.todo.length,
+                        designing: buckets.designing.length,
+                        inProgress: buckets.inProgress.length,
+                        review: buckets.codeReview.length + buckets.qa.length,
+                        blocked: tasks.filter((task) => task.status !== 'Done' && task.block_reason).length,
                 },
                 points: {
                         done: donePoints,
-                        doing: doingPoints,
-                        todo: totalPoints - donePoints - reviewPoints - doingPoints,
+                        designing: designingPoints,
+                        inProgress: inProgressPoints,
                         review: reviewPoints,
+                        todo: totalPoints - donePoints - designingPoints - inProgressPoints - reviewPoints,
                 },
                 avgLead: +average(leadDurations).toFixed(2),
                 avgCycle: +average(cycleDurations).toFixed(2),
                 throughput7d,
-                wip: doingPoints + reviewPoints,
-                wipToTh: throughput7d ? +((doingPoints + reviewPoints) / throughput7d).toFixed(2) : null,
+                wip: wipPoints,
+                wipToTh: throughput7d ? +(wipPoints / throughput7d).toFixed(2) : null,
+                workloadByAssignee: aggregateByAssignee(tasks),
+                statusOrder: COLUMN_ORDER,
         };
 }
 
@@ -77,16 +90,27 @@ export function buildInsights(data) {
         const now = new Date();
         const threeDaysFuture = new Date(now.getTime() + 3 * 24 * 3600 * 1000);
 
-        const doingColumn = data.board?.columns?.find((column) => column.name === 'In Progress');
-        if (doingColumn?.wip_limit && metrics.wip > doingColumn.wip_limit) {
+        const wipColumns = (data.board?.columns || []).filter((column) => column.wip_limit);
+        const wipByColumn = new Map();
+        (data.tasks || []).forEach((task) => {
+                const column = (data.board?.columns || []).find((col) => col.name === task.status);
+                if (!column || !column.wip_limit) return;
+                const current = wipByColumn.get(column.id) || 0;
+                wipByColumn.set(column.id, current + getTaskPoints(task.level));
+        });
+
+        wipColumns.forEach((column) => {
+                const columnWip = wipByColumn.get(column.id) || 0;
+                if (column.wip_limit && columnWip > column.wip_limit) {
                         issues.push({
                                 type: 'wip_limit_breach',
-                                column: 'WIP (Doing + Review)',
-                                wip: metrics.wip,
-                                limit: doingColumn.wip_limit,
+                                column: column.name,
+                                wip: columnWip,
+                                limit: column.wip_limit,
                                 suggestion: '暂停拉取新任务，先清空在制品（WIP 以 Story Points 计算）',
                         });
-        }
+                }
+        });
 
         const blockedTaskIds = new Set(
                 (data.tasks || [])
@@ -97,10 +121,10 @@ export function buildInsights(data) {
         (data.tasks || []).forEach((task) => {
                 if (task.status === 'Done') return;
 
-                if (task.status === 'In Progress' || task.status === 'Review') {
+                if (['Designing', 'In Progress', 'Code Review', 'QA'].includes(task.status)) {
                         const startTime = task.started_at || task.created_at;
                         const daysInWip = daysBetween(startTime, generatedAt);
-                        const taskLevel = task.level || 'Task';
+                        const taskLevel = task.level || task.type || 'Task';
                         const threshold = DURATION_THRESHOLDS[taskLevel] || DURATION_THRESHOLDS.DEFAULT;
 
                         if (daysInWip !== null && daysInWip > threshold) {
@@ -154,7 +178,7 @@ export function buildInsights(data) {
                                 task_id: task.id,
                                 title: task.title,
                                 reason: task.block_reason,
-                                suggestion: '协调资源或改用mock',
+                                suggestion: '协调资源或改用 mock 数据，解除阻塞。',
                         });
                 }
                 if (!task.due_at && task.status !== 'Done' && task.status !== 'To Do') {
@@ -168,4 +192,26 @@ export function buildInsights(data) {
         });
 
         return { generated_at: generatedAt, board: data.board?.name, metrics, issues };
+}
+
+function aggregateByAssignee(tasks) {
+        const map = new Map();
+        tasks.forEach((task) => {
+                const assignees = getAssigneeList(task);
+                const points = getTaskPoints(task.level);
+                if (assignees.length === 0) {
+                        const current = map.get('unassigned') || { assignee: 'unassigned', points: 0, tasks: 0 };
+                        current.points += points;
+                        current.tasks += 1;
+                        map.set('unassigned', current);
+                } else {
+                        assignees.forEach((id) => {
+                                const current = map.get(id) || { assignee: id, points: 0, tasks: 0 };
+                                current.points += points;
+                                current.tasks += 1;
+                                map.set(id, current);
+                        });
+                }
+        });
+        return Array.from(map.values());
 }

@@ -19,7 +19,7 @@
  * - 将状态机与本地存储结合，真正归档旧项目并支持恢复/切换。
  * - 将世界信息 Agent 的结构化输出与看板初始提示对接，实现新项目的自动化接管流程。
  */
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
         AddTaskModal,
         MessageBox,
@@ -35,7 +35,8 @@ import { KanbanView } from './components/KanbanView';
 import { EditTaskModal } from './components/EditTaskModal';
 import { APP_MODES } from './app/constants/appModes';
 import { getModuleColor } from './app/constants/colors';
-import { getTaskPoints } from './app/constants/task';
+import { getAssigneeList, getTaskPoints } from './app/constants/task';
+import { BOARD_VIEW_MODES, DEFAULT_BOARD_CONFIG } from './app/constants/board';
 import { DEFAULT_DATA } from './app/data/defaultData';
 import { initialApiKey } from './app/config/apiConfig';
 import { computeMetrics, buildInsights } from './app/logic/metrics';
@@ -43,12 +44,15 @@ import { calculateBurndownData, calculateCfdData } from './app/logic/charts';
 import { applyPatch, enforceLinearWorkflow } from './app/logic/patches';
 import { applyWorldPatch } from './app/logic/worldInfo';
 import { PROJECT_FLOW_EVENTS, PROJECT_FLOW_STATES, createProjectFlowContext, reduceProjectFlow } from './app/logic/projectFlow';
+import { buildBoardModel } from './app/logic/boardModel';
 import { classifyIntent, generatePatch } from './app/services/aiService';
 import { clone } from './app/utils/clone';
 import { nowISO, fmt, toUtcIso } from './app/utils/dateUtils';
 import { useWorkspace } from './app/hooks/useWorkspace';
 import { INITIAL_KANBAN_CHAT } from './app/constants/chat';
 import { INTENTS, ARCHIVED_RESOLUTION } from './app/constants/intents';
+
+const arraysEqual = (a = [], b = []) => a.length === b.length && a.every((value, index) => value === b[index]);
 
 export default function App() {
         const {
@@ -70,7 +74,14 @@ export default function App() {
 
         const [dragId, setDragId] = useState(null);
         const [edit, setEdit] = useState(null);
-        const [view, setView] = useState('kanban');
+        const [view, setView] = useState(
+                data.board?.view || data.board?.defaultView || DEFAULT_BOARD_CONFIG.defaultViewMode || 'board',
+        );
+        const [swimlaneStrategy, setSwimlaneStrategy] = useState(
+                data.board?.swimlanes?.defaultStrategy || DEFAULT_BOARD_CONFIG.swimlaneStrategy,
+        );
+        const [quickFilters, setQuickFilters] = useState(data.board?.filters?.quick || []);
+        const [searchText, setSearchText] = useState(data.board?.filters?.searchText || '');
         const [appMode, setAppMode] = useState(APP_MODES.KANBAN);
 
         const [projectFlow, setProjectFlow] = useState(createProjectFlowContext());
@@ -117,27 +128,86 @@ export default function App() {
                 setIntentNotice(null);
         }, [dispatchProjectFlow, setAbortRequestContext, setIntentNotice]);
 
-        const columns = useMemo(() => {
-                const cols = (data.board?.columns || [])
-                        .filter((column) => column.name !== 'Blocked')
-                        .slice()
-                        .sort((a, b) => (a.order || 0) - (b.order || 0));
-                return cols.length
-                        ? cols
-                        : [
-                                        { id: 'todo', name: 'To Do' },
-                                        { id: 'doing', name: 'In Progress' },
-                                        { id: 'review', name: 'Review' },
-                                        { id: 'done', name: 'Done' },
-                          ];
+        const toggleQuickFilter = useCallback((filterId) => {
+                setQuickFilters((previous) =>
+                        previous.includes(filterId)
+                                ? previous.filter((item) => item !== filterId)
+                                : [...previous, filterId],
+                );
+        }, []);
+
+        const handleSearchChange = useCallback((value) => {
+                setSearchText(value);
+        }, []);
+
+        const handleSwimlaneChange = useCallback((value) => {
+                setSwimlaneStrategy(value);
+        }, []);
+
+        const handleViewChange = useCallback((nextView) => {
+                const allowedViews = [...BOARD_VIEW_MODES.map((mode) => mode.value), 'cfd', 'burndown'];
+                if (allowedViews.includes(nextView)) {
+                        setView(nextView);
+                }
+        }, []);
+
+        useEffect(() => {
+                const targetView = data.board?.view || data.board?.defaultView || DEFAULT_BOARD_CONFIG.defaultViewMode || 'board';
+                setView((previous) => (previous === targetView ? previous : targetView));
+                setSwimlaneStrategy(
+                        data.board?.swimlanes?.defaultStrategy || DEFAULT_BOARD_CONFIG.swimlaneStrategy,
+                );
+                setQuickFilters(data.board?.filters?.quick || []);
+                setSearchText(data.board?.filters?.searchText || '');
         }, [data.board]);
 
-        const byStatus = useCallback((status) => (data.tasks || []).filter((task) => task.status === status), [data.tasks]);
+        useEffect(() => {
+                updateActiveProjectData((previous) => {
+                        const next = clone(previous);
+                        next.board = next.board || {};
+                        const filters = next.board.filters || {};
+                        const swimlanes = next.board.swimlanes || {};
+                        let changed = false;
+
+                        if (!arraysEqual(filters.quick || [], quickFilters) || (filters.searchText || '') !== searchText) {
+                                next.board.filters = { ...filters, quick: quickFilters, searchText };
+                                changed = true;
+                        }
+
+                        if ((swimlanes.defaultStrategy || DEFAULT_BOARD_CONFIG.swimlaneStrategy) !== swimlaneStrategy) {
+                                next.board.swimlanes = { ...swimlanes, defaultStrategy: swimlaneStrategy };
+                                changed = true;
+                        }
+
+                        if ((next.board.view || DEFAULT_BOARD_CONFIG.defaultViewMode) !== view) {
+                                next.board.view = view;
+                                changed = true;
+                        }
+
+                        if (!changed) return previous;
+                        next.board.last_update = nowISO();
+                        return next;
+                });
+        }, [quickFilters, searchText, swimlaneStrategy, view, updateActiveProjectData]);
+
+        const boardModel = useMemo(
+                () =>
+                        buildBoardModel({
+                                board: data.board,
+                                tasks: data.tasks,
+                                members: data.members,
+                                searchText,
+                                activeQuickFilters: quickFilters,
+                                swimlaneStrategy,
+                                currentUser: workspace.currentUserId || null,
+                        }),
+                [data.board, data.tasks, data.members, searchText, quickFilters, swimlaneStrategy, workspace.currentUserId],
+        );
         const metrics = useMemo(() => computeMetrics(data), [data]);
         const cfdData = useMemo(() => calculateCfdData(data), [data]);
         const burndownData = useMemo(() => calculateBurndownData(data), [data]);
 
-        function handleDrop(status) {
+        function handleDrop(status, subStatus = null) {
                 if (appMode === APP_MODES.WORLD_INFO_SETUP) return;
                 if (!dragId) return;
 
@@ -145,9 +215,10 @@ export default function App() {
                 const task = next.tasks.find((item) => item.id === dragId);
                 if (!task) return;
                 const fromStatus = task.status;
+                const fromSubStatus = task.subStatus || null;
                 const toStatus = status;
 
-                if (fromStatus === toStatus) return;
+                if (fromStatus === toStatus && fromSubStatus === (subStatus || null)) return;
 
                 try {
                         enforceLinearWorkflow(task, toStatus);
@@ -157,15 +228,14 @@ export default function App() {
                 }
 
                 task.status = toStatus;
+                task.subStatus = subStatus || null;
 
                 if (toStatus === 'To Do') {
                         task.started_at = undefined;
                         task.finished_at = undefined;
                         task.block_reason = null;
-                } else if (toStatus === 'In Progress') {
+                } else if (['Designing', 'In Progress', 'Code Review', 'QA'].includes(toStatus)) {
                         if (!task.started_at) task.started_at = nowISO();
-                        task.finished_at = undefined;
-                } else if (toStatus === 'Review') {
                         task.finished_at = undefined;
                 } else if (toStatus === 'Done') {
                         if (!task.finished_at) task.finished_at = nowISO();
@@ -180,6 +250,7 @@ export default function App() {
                         task_id: task.id,
                         from: fromStatus,
                         to: toStatus,
+                        meta: { subStatus: subStatus || null },
                         user: 'human',
                 });
                 next.board.last_update = nowISO();
@@ -238,8 +309,8 @@ export default function App() {
                 event.target.value = '';
         }
 
-        function exportFile(name, content) {
-                const blob = new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' });
+        function exportFile(name, content, mimeType = 'application/json') {
+                const blob = new Blob([content], { type: mimeType });
                 const url = URL.createObjectURL(blob);
                 const anchor = document.createElement('a');
                 anchor.href = url;
@@ -248,12 +319,55 @@ export default function App() {
                 URL.revokeObjectURL(url);
         }
 
+        const handleBoardExport = useCallback(
+                (format = 'json') => {
+                        if (format === 'csv') {
+                                const headers = ['ID', 'Title', 'Status', 'Priority', 'Assignees', 'Due', 'Module', 'Type', 'Points'];
+                                const rows = (data.tasks || []).map((task) => {
+                                        const assignees = getAssigneeList(task).join(' | ');
+                                        const values = [
+                                                task.id,
+                                                task.title,
+                                                task.status,
+                                                task.priority || '',
+                                                assignees,
+                                                task.due_at ? fmt(task.due_at) : '',
+                                                task.module || '',
+                                                task.type || '',
+                                                getTaskPoints(task.level),
+                                        ];
+                                        return values
+                                                .map((value) => (value ?? '').toString().replace(/"/g, '""'))
+                                                .map((value) => `"${value}"`)
+                                                .join(',');
+                                });
+                                const csv = [headers.join(','), ...rows].join('\n');
+                                exportFile(`kanban-board-${Date.now()}.csv`, csv, 'text/csv;charset=utf-8;');
+                                return;
+                        }
+
+                        const payload = {
+                                worldInfo,
+                                board: data.board,
+                                tasks: data.tasks,
+                                members: data.members,
+                                metrics: metrics,
+                        };
+                        exportFile(
+                                `kanban-board-${Date.now()}.json`,
+                                JSON.stringify(payload, null, 2),
+                                'application/json',
+                        );
+                },
+                [data.board, data.members, data.tasks, metrics, worldInfo],
+        );
+
         function exportBoard() {
-                exportFile('kanban.json', data);
+                handleBoardExport('json');
         }
 
         function exportChatLog() {
-                exportFile('chat_log.json', chatLogsRef.current);
+                exportFile('chat_log.json', JSON.stringify(chatLogsRef.current, null, 2));
         }
 
         function resetAll() {
@@ -584,19 +698,40 @@ export default function App() {
                 setTaskToDelete(null);
         }
 
-        function handleAddTaskSubmit(title) {
+        function handleAddTaskSubmit(payload) {
+                if (!payload || !payload.title) return;
                 const next = clone(data);
                 const id = `t-${Math.random().toString(36).slice(2, 8)}`;
-                next.tasks.push({
+                const createdAt = nowISO();
+                const dueAt = payload.due_at ? toUtcIso(payload.due_at) : undefined;
+                const status = payload.status || 'To Do';
+                const assignees = Array.isArray(payload.assignees) ? payload.assignees : [];
+                const tags = Array.isArray(payload.tags) ? payload.tags : [];
+
+                const newTask = {
                         id,
-                        title,
-                        status: 'To Do',
-                        created_at: nowISO(),
-                        owner: [],
-                        module: 'DEFAULT',
-                        level: 'Task',
+                        title: payload.title.trim(),
+                        description: payload.description || '',
+                        status,
+                        subStatus: payload.subStatus || null,
+                        module: payload.module || '未分配模块',
+                        type: payload.type || 'Task',
+                        level: payload.type || 'Task',
+                        priority: payload.priority || 'Medium',
+                        assignees,
+                        owner: assignees,
+                        created_at: createdAt,
+                        started_at: status === 'To Do' ? undefined : createdAt,
+                        finished_at: status === 'Done' ? createdAt : undefined,
+                        due_at: dueAt,
                         depends_on: [],
-                });
+                        checklist: [],
+                        attachments: [],
+                        comments: [],
+                        tags,
+                };
+
+                next.tasks.push(newTask);
                 next.events = next.events || [];
                 next.events.push({
                         id: `e-${(next.events.length || 0) + 1}`,
@@ -610,34 +745,38 @@ export default function App() {
                 setShowAddTaskModal(false);
         }
 
-        function onEditSave() {
-                const form = document.getElementById('editForm');
-                const fd = new FormData(form);
+        function onEditSave(payload) {
+                if (!payload || !edit) return;
                 const next = clone(data);
                 const task = next.tasks.find((item) => item.id === edit.id);
                 if (!task) return;
 
-                const saveDate = (key) => toUtcIso(fd.get(key));
+                task.title = payload.title;
+                task.description = payload.description;
+                task.module = payload.module || undefined;
+                task.status = payload.status;
+                task.subStatus = payload.subStatus || null;
+                task.type = payload.type || task.type;
+                task.level = payload.level || payload.type || task.level || 'Task';
+                task.priority = payload.priority || 'Medium';
+                task.assignees = Array.isArray(payload.assignees) ? payload.assignees : [];
+                task.owner = task.assignees;
+                task.tags = payload.tags;
+                task.depends_on = payload.depends_on;
+                task.block_reason = payload.block_reason || undefined;
+                task.checklist = payload.checklist;
 
-                task.title = fd.get('title');
-                task.module = fd.get('module') || undefined;
-                task.status = fd.get('status');
-                task.level = fd.get('level') || 'Task';
-                task.depends_on = (fd.get('depends_on') || '').split(',').map((s) => s.trim()).filter(Boolean);
-                task.owner = (fd.get('owner') || '').split(',').map((s) => s.trim()).filter(Boolean);
-
-                task.created_at = saveDate('created_at') || task.created_at;
-                task.started_at = saveDate('started_at');
-                task.finished_at = saveDate('finished_at');
-                task.due_at = saveDate('due_at');
-
-                const newBlockReason = fd.get('block_reason') || undefined;
-                task.block_reason = newBlockReason;
+                const saveDate = (value, fallback) => (value ? toUtcIso(value) : fallback);
+                task.created_at = saveDate(payload.created_at, task.created_at);
+                task.started_at = saveDate(payload.started_at, task.started_at);
+                task.finished_at = saveDate(payload.finished_at, task.finished_at);
+                task.due_at = saveDate(payload.due_at, task.due_at);
 
                 if (task.status === 'To Do') {
                         task.started_at = undefined;
                         task.finished_at = undefined;
-                } else if (task.status === 'In Progress' || task.status === 'Review') {
+                } else if (['Designing', 'In Progress', 'Code Review', 'QA'].includes(task.status)) {
+                        if (!task.started_at) task.started_at = nowISO();
                         task.finished_at = undefined;
                 } else if (task.status === 'Done' && !task.finished_at) {
                         task.finished_at = nowISO();
@@ -886,9 +1025,11 @@ export default function App() {
                                                 intentNotice={intentNotice}
                                                 metrics={metrics}
                                                 view={view}
-                                                onChangeView={setView}
-                                                columns={columns}
-                                                byStatus={byStatus}
+                                                onChangeView={handleViewChange}
+                                                boardModel={boardModel}
+                                                board={data.board}
+                                                tasks={data.tasks}
+                                                members={data.members}
                                                 onDropTask={handleDrop}
                                                 onDragStart={handleCardDragStart}
                                                 onEditTask={setEdit}
@@ -897,13 +1038,27 @@ export default function App() {
                                                 fmt={fmt}
                                                 cfdData={cfdData}
                                                 burndownData={burndownData}
+                                                quickFilters={quickFilters}
+                                                onToggleQuickFilter={toggleQuickFilter}
+                                                searchText={searchText}
+                                                onSearchTextChange={handleSearchChange}
+                                                swimlaneStrategy={swimlaneStrategy}
+                                                onChangeSwimlane={handleSwimlaneChange}
+                                                onExportBoard={handleBoardExport}
                                         />
                                 )}
                         </div>
 
                         <AppFooter appMode={appMode} />
 
-                        <EditTaskModal task={edit} onClose={() => setEdit(null)} onDelete={handleDeleteTask} onSave={onEditSave} />
+                        <EditTaskModal
+                                task={edit}
+                                columns={boardModel.columns}
+                                members={data.members}
+                                onClose={() => setEdit(null)}
+                                onDelete={handleDeleteTask}
+                                onSave={onEditSave}
+                        />
 
                         {showResetConfirm && (
                                 <ResetConfirmModal
@@ -927,7 +1082,14 @@ export default function App() {
                                 />
                         )}
 
-                        {showAddTaskModal && <AddTaskModal onClose={() => setShowAddTaskModal(false)} onSave={handleAddTaskSubmit} />}
+                        {showAddTaskModal && (
+                                <AddTaskModal
+                                        onClose={() => setShowAddTaskModal(false)}
+                                        onSave={handleAddTaskSubmit}
+                                        columns={boardModel.columns}
+                                        members={data.members}
+                                />
+                        )}
 
                         {message && <MessageBox message={message} onClose={() => setMessage(null)} />}
                 </div>

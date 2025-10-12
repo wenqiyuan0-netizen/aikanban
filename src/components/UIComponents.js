@@ -18,7 +18,9 @@
  * - 为未来的管理员视图或多语言需求拆分更细粒度的组件。
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { TASK_PRIORITIES, TASK_TYPES } from '../app/constants/board';
+import { getAssigneeList } from '../app/constants/task';
 
 /* --------------------------------------------------------------------------
  * 🟦 Column（看板列容器）
@@ -85,7 +87,7 @@ export function Card({ task, onDragStart, onEdit, getModuleColor, getTaskPoints,
 			)}
 
 			{/* 时间与责任人 */}
-			<div className="mt-1 text-[11px] text-gray-600">负责人：{(task.owner || []).join(', ') || '—'}</div>
+                        <div className="mt-1 text-[11px] text-gray-600">负责人：{getAssigneeList(task).join(', ') || '—'}</div>
 			<div className="text-[11px] text-gray-500">创建：{fmt(task.created_at)}</div>
 			{task.started_at && <div className="text-[11px] text-gray-500">开始：{fmt(task.started_at)}</div>}
 			{task.finished_at && <div className="text-[11px] text-gray-500">完成：{fmt(task.finished_at)}</div>}
@@ -125,38 +127,181 @@ export function Modal({ children, onClose }) {
  * 🟢 AddTaskModal（新建任务弹窗）
  * - 输入任务标题 -> 调用 onSave(title)
  * -------------------------------------------------------------------------- */
-export function AddTaskModal({ onClose, onSave }) {
-	const [title, setTitle] = useState('');
+export function AddTaskModal({ onClose, onSave, columns = [], members = [] }) {
+        const defaultStatus = columns[0]?.name || 'To Do';
+        const [form, setForm] = useState({
+                title: '',
+                description: '',
+                module: '',
+                status: defaultStatus,
+                subStatus: '',
+                type: 'Task',
+                priority: 'Medium',
+                assignees: [],
+                due_at: '',
+                tags: '',
+        });
 
-	const handleSubmit = () => {
-		if (title.trim()) onSave(title.trim());
-	};
+        const availableSubColumns = useMemo(() => {
+                return columns.find((column) => column.name === form.status)?.subColumns || [];
+        }, [columns, form.status]);
 
-	return (
-		<Modal onClose={onClose}>
-			<h3 className="text-lg font-bold mb-4">新建任务</h3>
-			<label className="block text-sm font-medium text-gray-700">
-				任务标题
-				<input
-					type="text"
-					value={title}
-					onChange={(e) => setTitle(e.target.value)}
-					placeholder="输入新任务标题"
-					className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
-					onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-					autoFocus
-				/>
-			</label>
-			<div className="mt-6 flex justify-end gap-3">
-				<button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm">
-					取消
-				</button>
-				<button onClick={handleSubmit} className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm">
-					创建
-				</button>
-			</div>
-		</Modal>
-	);
+        const handleChange = (key, value) => {
+                setForm((prev) => ({ ...prev, [key]: value }));
+        };
+
+        const handleSubmit = () => {
+                if (!form.title.trim()) return;
+                onSave({
+                        ...form,
+                        assignees: form.assignees,
+                        tags: form.tags
+                                .split(',')
+                                .map((item) => item.trim())
+                                .filter(Boolean),
+                });
+        };
+
+        return (
+                <Modal onClose={onClose}>
+                        <h3 className="text-lg font-bold mb-4">新建任务</h3>
+                        <div className="grid grid-cols-2 gap-3">
+                                <label className="text-xs font-medium text-gray-700 col-span-2">
+                                        任务标题
+                                        <input
+                                                type="text"
+                                                value={form.title}
+                                                onChange={(e) => handleChange('title', e.target.value)}
+                                                placeholder="输入新任务标题"
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+                                                autoFocus
+                                        />
+                                </label>
+                                <label className="text-xs font-medium text-gray-700 col-span-2">
+                                        描述
+                                        <textarea
+                                                value={form.description}
+                                                onChange={(e) => handleChange('description', e.target.value)}
+                                                placeholder="简单描述任务目标，支持 Markdown"
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm h-24"
+                                        />
+                                </label>
+                                <label className="text-xs font-medium text-gray-700">
+                                        模块 / 泳道
+                                        <input
+                                                value={form.module}
+                                                onChange={(e) => handleChange('module', e.target.value)}
+                                                placeholder="例如：看板引擎"
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+                                        />
+                                </label>
+                                <label className="text-xs font-medium text-gray-700">
+                                        优先级
+                                        <select
+                                                value={form.priority}
+                                                onChange={(e) => handleChange('priority', e.target.value)}
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+                                        >
+                                                {TASK_PRIORITIES.map((item) => (
+                                                        <option key={item.value} value={item.value}>
+                                                                {item.label}
+                                                        </option>
+                                                ))}
+                                        </select>
+                                </label>
+                                <label className="text-xs font-medium text-gray-700">
+                                        类型
+                                        <select
+                                                value={form.type}
+                                                onChange={(e) => handleChange('type', e.target.value)}
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+                                        >
+                                                {TASK_TYPES.map((item) => (
+                                                        <option key={item.value} value={item.value}>
+                                                                {item.label}
+                                                        </option>
+                                                ))}
+                                        </select>
+                                </label>
+                                <label className="text-xs font-medium text-gray-700">
+                                        所属列
+                                        <select
+                                                value={form.status}
+                                                onChange={(e) => handleChange('status', e.target.value)}
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+                                        >
+                                                {columns.map((column) => (
+                                                        <option key={column.id} value={column.name}>
+                                                                {column.name}
+                                                        </option>
+                                                ))}
+                                        </select>
+                                </label>
+                                <label className="text-xs font-medium text-gray-700">
+                                        子列
+                                        <select
+                                                value={form.subStatus}
+                                                onChange={(e) => handleChange('subStatus', e.target.value)}
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+                                                disabled={!availableSubColumns.length}
+                                        >
+                                                <option value="">{availableSubColumns.length ? '选择子列' : '无子列'}</option>
+                                                {availableSubColumns.map((sub) => (
+                                                        <option key={sub.id} value={sub.id}>
+                                                                {sub.name}
+                                                        </option>
+                                                ))}
+                                        </select>
+                                </label>
+                                <label className="text-xs font-medium text-gray-700">
+                                        负责人（可多选）
+                                        <select
+                                                multiple
+                                                value={form.assignees}
+                                                onChange={(e) =>
+                                                        handleChange(
+                                                                'assignees',
+                                                                Array.from(e.target.selectedOptions).map((opt) => opt.value),
+                                                        )
+                                                }
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm h-24"
+                                        >
+                                                {members.map((member) => (
+                                                        <option key={member.id} value={member.id}>
+                                                                {member.name} · {member.role || '成员'}
+                                                        </option>
+                                                ))}
+                                        </select>
+                                </label>
+                                <label className="text-xs font-medium text-gray-700">
+                                        截止日期
+                                        <input
+                                                type="datetime-local"
+                                                value={form.due_at}
+                                                onChange={(e) => handleChange('due_at', e.target.value)}
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+                                        />
+                                </label>
+                                <label className="text-xs font-medium text-gray-700 col-span-2">
+                                        标签（逗号分隔）
+                                        <input
+                                                value={form.tags}
+                                                onChange={(e) => handleChange('tags', e.target.value)}
+                                                placeholder="如：frontend, urgent"
+                                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+                                        />
+                                </label>
+                        </div>
+                        <div className="mt-6 flex justify-end gap-3">
+                                <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm">
+                                        取消
+                                </button>
+                                <button onClick={handleSubmit} className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm">
+                                        创建
+                                </button>
+                        </div>
+                </Modal>
+        );
 }
 
 /* --------------------------------------------------------------------------
@@ -301,7 +446,7 @@ export function AiTaskConfirmModal({ tasks = [], onConfirm, onCancel }) {
                                                         </span>
                                                 </div>
                                                 <div className="text-xs text-gray-500 mt-1">
-                                                        模块：{task.module || '未指定'} · 负责人：{(task.owner || []).join(', ') || '待分配'}
+                                                        模块：{task.module || '未指定'} · 负责人：{getAssigneeList(task).join(', ') || '待分配'}
                                                 </div>
                                                 {task.depends_on?.length > 0 && (
                                                         <div className="text-xs text-gray-500 mt-1">

@@ -77,7 +77,7 @@ export const KANBAN_PATCH_SCHEMA = {
                                                 description: 'Fields to update for task_update operation (only include changed fields).',
                                                 properties: {
                                                         title: { type: 'STRING' },
-                                                        status: { type: 'STRING', enum: ['To Do', 'In Progress', 'Review', 'Done'] },
+                                                        status: { type: 'STRING', enum: ['To Do', 'Designing', 'In Progress', 'Code Review', 'QA', 'Done'] },
                                                         owner: { type: 'ARRAY', items: { type: 'STRING' } },
                                                         block_reason: {
                                                                 type: 'STRING',
@@ -97,7 +97,7 @@ export const KANBAN_PATCH_SCHEMA = {
                                                         name: { type: 'STRING' },
                                                         role: { type: 'STRING' },
                                                         title: { type: 'STRING' },
-                                                        status: { type: 'STRING', enum: ['To Do', 'In Progress', 'Review', 'Done'] },
+                                                        status: { type: 'STRING', enum: ['To Do', 'Designing', 'In Progress', 'Code Review', 'QA', 'Done'] },
                                                         owner: { type: 'ARRAY', items: { type: 'STRING' } },
                                                         module: { type: 'STRING' },
                                                         time: { type: 'STRING' },

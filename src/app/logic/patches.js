@@ -18,6 +18,7 @@
  * - 增加补丁校验与审计日志，便于追踪 AI 操作来源。
  */
 import { COLUMN_ORDER } from '../constants/colors';
+import { getAssigneeList } from '../constants/task';
 import { clone } from '../utils/clone';
 import { nowISO } from '../utils/dateUtils';
 
@@ -37,23 +38,35 @@ export function applyPatch(currentData, patches) {
                                 case 'task_update': {
                                         const taskIndex = nextData.tasks.findIndex((task) => task.id === patch.id);
                                         if (taskIndex !== -1 && patch.updates) {
-                                                nextData.tasks[taskIndex] = { ...nextData.tasks[taskIndex], ...patch.updates };
-                                                if (patch.updates.status === 'In Progress' && !nextData.tasks[taskIndex].started_at) {
-                                                        nextData.tasks[taskIndex].started_at = nowISO();
+                                                const merged = { ...nextData.tasks[taskIndex], ...patch.updates };
+                                                if (patch.updates.status && COLUMN_ORDER.includes(patch.updates.status)) {
+                                                        merged.status = patch.updates.status;
+                                                        if (merged.status === 'In Progress' && !merged.started_at) {
+                                                                merged.started_at = nowISO();
+                                                        }
+                                                        if (merged.status === 'Done' && !merged.finished_at) {
+                                                                merged.finished_at = nowISO();
+                                                        }
                                                 }
-                                                if (patch.updates.status === 'Done' && !nextData.tasks[taskIndex].finished_at) {
-                                                        nextData.tasks[taskIndex].finished_at = nowISO();
+                                                if (!merged.assignees && merged.owner) {
+                                                        merged.assignees = getAssigneeList(merged);
                                                 }
+                                                nextData.tasks[taskIndex] = merged;
                                         }
                                         break;
                                 }
                                 case 'task_add': {
                                         if (patch.details) {
                                                 if (!patch.details.id) patch.details.id = `t-${Math.random().toString(36).slice(2, 8)}`;
-                                                if (!patch.details.status) patch.details.status = 'To Do';
+                                                if (!patch.details.status || !COLUMN_ORDER.includes(patch.details.status)) {
+                                                        patch.details.status = 'To Do';
+                                                }
                                                 if (!patch.details.created_at) patch.details.created_at = nowISO();
-                                                if (!patch.details.level) patch.details.level = 'Task';
+                                                if (!patch.details.level) patch.details.level = patch.details.type || 'Task';
                                                 if (!patch.details.depends_on) patch.details.depends_on = [];
+                                                if (!patch.details.assignees && patch.details.owner) {
+                                                        patch.details.assignees = getAssigneeList(patch.details);
+                                                }
 
                                                 if (!nextData.tasks.some((task) => task.id === patch.details.id)) {
                                                         nextData.tasks.push(patch.details);
@@ -103,6 +116,7 @@ export function applyPatch(currentData, patches) {
 export function enforceLinearWorkflow(task, nextStatus) {
         const fromIndex = COLUMN_ORDER.indexOf(task.status);
         const toIndex = COLUMN_ORDER.indexOf(nextStatus);
+        if (fromIndex === -1 || toIndex === -1) return;
         if (toIndex > fromIndex + 1) {
                 throw new Error(`任务不应跳过阶段直接进入 ${nextStatus}。请遵循线性工作流：${COLUMN_ORDER.join(' -> ')}`);
         }

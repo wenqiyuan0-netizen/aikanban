@@ -135,7 +135,7 @@ export const generatePatch = async (apiKey, mode, fullPrompt) => {
                                 b) 你的回复 (\`ai_response\`) 必须具有专业性，并结合看板数据进行解释。
                         4.  **处理阻塞:** 如果用户要求阻塞任务，使用 \`task_update\` 设置 \`block_reason\` 字段，**不要**更改 \`status\` 字段。
 
-                        **工作流约束:** 任务移动必须遵循 **To Do -> In Progress -> Review -> Done** 的线性顺序。**禁止跳过阶段，除非用户明确要求。**
+                        **工作流约束:** 任务移动必须遵循 **To Do -> Designing -> In Progress -> Code Review -> QA -> Done** 的线性顺序。**禁止跳过阶段，除非用户明确要求。**
 
                         5.  **历史一致性 Historical consistency:** 在创建 event_add、回填 created_at、due_at 或修改 status 时，必须先检查现有任务状态与事件时间戳，确保不会出现时间线矛盾。例如，若任务已标记为 Done，绝不可再插入其“开始”事件；若确需重写历史，必须先征得用户明确同意，并在单次补丁中同步提供所有必要的逆向更新以保持一致。若无法确认，请向用户说明风险并请求进一步指示。
                 `;
