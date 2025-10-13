@@ -156,7 +156,11 @@ export function useWorkspace() {
                                         };
                                         recordTimeline({
                                                 type: 'WORLD_CHAT_APPENDED',
-                                                meta: { projectId: workspace.currentProjectId, role: message?.role },
+                                                meta: {
+                                                        projectId: workspace.currentProjectId,
+                                                        role: message?.role,
+                                                        agent: message?.agent || 'world-info',
+                                                },
                                         });
                                         return next;
                                 });
@@ -169,7 +173,11 @@ export function useWorkspace() {
                                         };
                                         recordTimeline({
                                                 type: 'KANBAN_CHAT_APPENDED',
-                                                meta: { projectId: workspace.currentProjectId, role: message?.role },
+                                                meta: {
+                                                        projectId: workspace.currentProjectId,
+                                                        role: message?.role,
+                                                        agent: message?.agent || 'kanban',
+                                                },
                                         });
                                         return next;
                                 });

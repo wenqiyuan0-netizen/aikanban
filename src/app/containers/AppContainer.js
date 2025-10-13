@@ -56,6 +56,8 @@ import { INTENTS, ARCHIVED_RESOLUTION } from '../constants/intents';
 
 const arraysEqual = (a = [], b = []) => a.length === b.length && a.every((value, index) => value === b[index]);
 
+const AUTO_WORLD_HANDOFF_ON_NEW_TASKS = false; // Logic Audit · 逻辑审计：保留策略位，默认不自动跳转世界信息界面。
+
 export function AppContainer() {
         const {
                 workspace,
@@ -1099,7 +1101,7 @@ export function AppContainer() {
                 setPendingTaskCreation(null);
                 setMessage({
                         title: 'AI 新任务已添加',
-                        body: '根据 AI 建议完成新任务创建，请继续在“项目世界信息设置”中补充上下文。',
+                        body: '根据 AI 建议完成新任务创建。可继续在看板中工作，若需补充背景再进入“世界信息”配置。',
                         type: 'success',
                 });
                 if (previewTasks.length > 0) {
@@ -1109,17 +1111,34 @@ export function AppContainer() {
                         appendChat(
                                 {
                                         role: 'system',
-                                        text: `看板 AI 已新增任务：${summary}。请在世界信息设置中补充这些任务的背景、依赖和优先级。`,
+                                        agent: 'kanban',
+                                        text: `看板 AI 已新增任务：${summary}。如需补充背景、依赖或并行模块，可随时进入“世界信息”界面（可选）。`,
                                         time: new Date().toLocaleTimeString(),
                                 },
-                                APP_MODES.WORLD_INFO_SETUP,
+                                APP_MODES.KANBAN,
                         );
-                        // Logic Audit · 逻辑审计：这里强制跳转到世界信息配置。
-                        // 如果未来允许直接接受任务而无需补充世界信息，需要新增用户确认分支。
-                        enterWorldInfoSetup({
-                                source: source || 'ai_task_follow_up',
-                                previewCount: previewTasks.length,
-                        });
+                        // Logic Audit · 逻辑审计：取消“新增任务后强制跳转世界信息”，改为策略控制。
+                        if (AUTO_WORLD_HANDOFF_ON_NEW_TASKS) {
+                                enterWorldInfoSetup({
+                                        source: source || 'ai_task_follow_up',
+                                        previewCount: previewTasks.length,
+                                });
+                        } else {
+                                setMessage((current) =>
+                                        current?.title === 'AI 新任务已添加'
+                                                ? current
+                                                : {
+                                                          title: '新任务创建完成',
+                                                          body: '继续在看板中处理任务，或在需要时进入“世界信息”完善上下文。',
+                                                          type: 'info',
+                                                  },
+                                );
+                                logDebugEvent({
+                                        event: 'world-info:auto-handoff-skipped',
+                                        previewCount: previewTasks.length,
+                                        source: source || 'ai_task_follow_up',
+                                });
+                        }
                 }
         }
 

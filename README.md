@@ -42,8 +42,9 @@ This repository contains an AI-assisted project management workspace that combin
 - `AppContainer` · `handleResetConfirm`：重置项目时直接将世界信息清空为 `{}`，假设下一步一定重新填写。若未来支持保留部分旧信息，需要拓展状态机分支。
 - `AppContainer` · `handleDeleteTaskConfirm`：删除任务暂不支持撤销/回收站功能；后续在 Prompt 与 UI 中需新增安全回退策略。
 - `AppContainer` · `applyLaneFieldUpdate`：跨泳道拖拽仅同步单一字段，对多责任人复制逻辑需在后续版本中补强。
-- `AppContainer` · `handleConfirmAiTaskAdds`：AI 新增任务后强制跳转世界信息配置，若要支持“直接接受但暂不补写”，需新增用户确认分支。
+- `AppContainer` · `handleConfirmAiTaskAdds`：已改为默认停留在看板通道，仅追加系统提示，并保留 `AUTO_WORLD_HANDOFF_ON_NEW_TASKS` 策略位控制是否自动跳转世界信息。后续若要完全统一体验，需要与顶部菜单入口共用同一个 `enterWorldInfoSetup` 中间层。
 - `AppContainer` · `handleWorldInfoAbort`：当前只恢复一次性的 `preResetSnapshot`，需与正式的归档/恢复机制联动。
+- `src/app/services/aiService.js` · Prompt 分发：新增 `message.agent` 标记后需校验看板/世界信息 prompt 是否需要同步更新（待在下一轮集中检查）。
 
 ## Multi-agent focus · 多 Agent 协同重点
 
@@ -128,6 +129,8 @@ flowchart TD
 | `boardLaneBreakdown` | `buildBoardModel(...).lanes` | 泳道 → 列 → 任务映射，用于生成分模块总结或导出指令。|
 
 > 📌 提示：看板 Agent 的 prompt 在迎接用户回到看板时会收到以上所有字段；当世界信息 Agent 完成配置后，系统会主动发送欢迎语，并强制要求本回合的 `patch_instructions` 为空数组，避免未确认的自动改动。
+>
+> 🆕 2025-06-01：聊天消息新增 `agent` 元数据，用于区分看板/世界信息/路由等来源；提示词模板需在 `src/app/services/aiService.js` 下一轮统一读取。
 
 ## Manual Kanban board capabilities · 手动看板能力总览
 
@@ -269,6 +272,7 @@ flowchart TD
 
 ## Build log · 构建记录
 
+- 2025-06-01 · Step 8：取消 AI 新任务后强制跳转世界信息流程，新增 `AUTO_WORLD_HANDOFF_ON_NEW_TASKS` 策略位、系统提示与 Agent 标签，并记录需复核的 prompt 分发逻辑。
 - 2025-06-01 · Step 7：抽离 `AppContainer` 以保持入口轻量，并在核心分支加入逻辑审计注释/README 对照清单。
 - 2025-05-31 · Step 6：修复跨泳道拖拽只更新列状态的问题，并将世界信息成员补丁改为增量合并，避免误删已有成员。
 - 2025-05-30 · Step 5：更新 Prompt 管理计划，梳理向桌面付费套件演进所需的账号、实时协作、论坛、计费等技术路线。
