@@ -217,15 +217,18 @@ export function AppContainer() {
         const cfdData = useMemo(() => calculateCfdData(data), [data]);
         const burndownData = useMemo(() => calculateBurndownData(data), [data]);
 
-        function handleDrop({ status, subStatus = null, lane }) {
+        // Logic Audit · 逻辑审计：`handleMoveTask` 现作为唯一入口，统一处理来自画布/列视图/自动化的任务流转，
+        // 需要确保 prompt 跟进 `workspace.timeline` 的事件名称变更（task-move:*）。
+        function handleMoveTask({ taskId, status, subStatus = null, lane, source = 'task-move' }) {
                 if (appMode === APP_MODES.WORLD_INFO_SETUP) return;
-                if (!dragId) return;
+                const effectiveTaskId = taskId || dragId;
+                if (!effectiveTaskId || !status) return;
 
                 const outcome = { updated: false, error: null };
 
                 updateActiveProjectData(
                         (draft) => {
-                                const task = draft.tasks.find((item) => item.id === dragId);
+                                const task = draft.tasks.find((item) => item.id === effectiveTaskId);
                                 if (!task) {
                                         outcome.error = '未找到对应任务，拖拽被忽略。';
                                         return null;
@@ -280,13 +283,13 @@ export function AppContainer() {
                                 outcome.updated = true;
                                 return draft;
                         },
-                        { reason: 'drag-drop', taskId: dragId, toStatus: status, lane: lane?.field || null },
+                        { reason: source, taskId: effectiveTaskId, toStatus: status, lane: lane?.field || null },
                 );
 
                 if (outcome.error) {
                         logDebugEvent({
-                                event: 'drag-drop:error',
-                                taskId: dragId,
+                                event: 'task-move:error',
+                                taskId: effectiveTaskId,
                                 message: outcome.error,
                         });
                         setMessage({ title: '流程警告', body: outcome.error, type: 'error' });
@@ -295,10 +298,11 @@ export function AppContainer() {
 
                 if (outcome.updated) {
                         logDebugEvent({
-                                event: 'drag-drop:completed',
-                                taskId: dragId,
+                                event: 'task-move:completed',
+                                taskId: effectiveTaskId,
                                 toStatus: status,
                                 lane: lane?.field || null,
+                                source,
                         });
                         setDragId(null);
                 }
@@ -1079,7 +1083,17 @@ export function AppContainer() {
                 }
         }
 
-        const handleCardDragStart = useCallback((_, id) => setDragId(id), []);
+        const handleCardDragStart = useCallback(
+                (event, id) => {
+                        if (event?.dataTransfer) {
+                                event.dataTransfer.setData('application/x-kanban-task', id);
+                                event.dataTransfer.effectAllowed = 'move';
+                        }
+                        setDragId(id);
+                        logDebugEvent({ event: 'task-drag:start', taskId: id });
+                },
+                [logDebugEvent],
+        );
 
         function handleConfirmAiTaskAdds() {
                 if (!pendingTaskCreation) return;
@@ -1193,9 +1207,8 @@ export function AppContainer() {
                                                 onChangeView={handleViewChange}
                                                 boardModel={boardModel}
                                                 board={data.board}
-                                                tasks={data.tasks}
                                                 members={data.members}
-                                                onDropTask={handleDrop}
+                                                onMoveTask={handleMoveTask}
                                                 onDragStart={handleCardDragStart}
                                                 onEditTask={setEdit}
                                                 getModuleColor={getModuleColor}

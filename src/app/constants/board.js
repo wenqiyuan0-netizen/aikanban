@@ -106,6 +106,7 @@ export const QUICK_FILTERS = [
 ];
 
 export const BOARD_VIEW_MODES = [
+        { value: 'canvas', label: '画布视图', promptKey: 'board.view.canvas' },
         { value: 'board', label: '看板视图', promptKey: 'board.view.board' },
         { value: 'list', label: '列表视图', promptKey: 'board.view.list' },
         { value: 'calendar', label: '日历视图', promptKey: 'board.view.calendar' },
@@ -118,5 +119,7 @@ export const BOARD_EXPORT_OPTIONS = [
 
 export const DEFAULT_BOARD_CONFIG = {
         swimlaneStrategy: 'module',
-        defaultViewMode: 'board',
+        defaultViewMode: 'canvas',
 };
+
+export const CANVAS_DEFAULT_DROP_STATUS = 'In Progress';

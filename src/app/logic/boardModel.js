@@ -68,8 +68,25 @@ export function buildBoardModel({
         });
 
         const laneMap = new Map();
+        const canvasTasks = [];
         filteredTasks.forEach((task) => {
                 const laneKeys = computeLaneKeys(task, laneConfig, members);
+                const primaryLane = laneKeys[0] || {
+                        id: 'default',
+                        label: '默认泳道',
+                        color: getModuleColor(task.module),
+                        field: laneConfig?.taskField || null,
+                        value: null,
+                };
+
+                canvasTasks.push({
+                        task,
+                        accentColor: primaryLane.color || getModuleColor(task.module),
+                        laneLabel: primaryLane.label,
+                        laneField: primaryLane.field || null,
+                        laneValue: primaryLane.value ?? null,
+                });
+
                 laneKeys.forEach((laneKey) => {
                         const entry = laneMap.get(laneKey.id) || {
                                 id: laneKey.id,
@@ -112,6 +129,11 @@ export function buildBoardModel({
                 lanes,
                 wipAlerts,
                 promptContext,
+                filteredTasks,
+                canvas: {
+                        tasks: canvasTasks,
+                        swimlaneStrategy: laneConfig.value,
+                },
         };
 }
 

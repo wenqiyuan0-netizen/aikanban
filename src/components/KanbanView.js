@@ -4,6 +4,7 @@
  * Completed / 已完成:
  * - Rebuilds the Kanban workspace UI to match the manual-first specification: swimlanes,
  *   sub-columns, quick filters, list view, export actions, and metrics cards.
+ * - Adds a single-canvas layout that colours cards by模块/项目并提供状态停靠栏，支撑“无列”画布体验。
  * - Keeps the existing chat panel while upgrading the board area into a flexible layout
  *   that supports WIP warnings and hover-based detail cards.
  *
@@ -15,7 +16,7 @@
  *
  * Pending / 未完成:
  * - Calendar 视图尚未实现，仅预留按钮。
- * - 无障碍与键盘快捷操作仍待补充。
+ * - 无障碍与键盘快捷操作仍待补充；画布模式的键盘搬运仍待实现。
  *
  * Next Steps / 后续计划:
  * - 引入虚拟滚动优化大规模任务渲染，补充批量操作入口。
@@ -33,10 +34,16 @@ import {
         XAxis,
         YAxis,
 } from 'recharts';
-import { BOARD_EXPORT_OPTIONS, QUICK_FILTERS, SWIMLANE_STRATEGIES } from '../app/constants/board';
+import {
+        BOARD_EXPORT_OPTIONS,
+        QUICK_FILTERS,
+        SWIMLANE_STRATEGIES,
+        CANVAS_DEFAULT_DROP_STATUS,
+} from '../app/constants/board';
 import { getAssigneeList } from '../app/constants/task';
 
 const VIEW_TABS = [
+        { key: 'canvas', label: '画布视图' },
         { key: 'board', label: '看板视图' },
         { key: 'list', label: '列表视图' },
         { key: 'cfd', label: '累积流图 (CFD)' },
@@ -55,9 +62,8 @@ export function KanbanView({
         onChangeView,
         boardModel,
         board,
-        tasks,
         members,
-        onDropTask,
+        onMoveTask,
         onDragStart,
         onEditTask,
         getModuleColor,
@@ -73,7 +79,8 @@ export function KanbanView({
         onChangeSwimlane,
         onExportBoard,
 }) {
-        const flattenedFilteredTasks = flattenLaneTasks(boardModel?.lanes || []);
+        const filteredTasks = boardModel?.filteredTasks || flattenLaneTasks(boardModel?.lanes || []);
+        const flattenedFilteredTasks = filteredTasks;
 
         return (
                 <>
@@ -198,11 +205,23 @@ export function KanbanView({
                                 <div className='p-5 flex-1 overflow-hidden flex flex-col'>
                                         {boardModel?.wipAlerts?.length > 0 && <WipAlerts alerts={boardModel.wipAlerts} />}
 
+                                        {view === 'canvas' && (
+                                                <CanvasBoard
+                                                        tasks={boardModel.canvas?.tasks || []}
+                                                        columns={boardModel.columns}
+                                                        onMoveTask={onMoveTask}
+                                                        onDragStart={onDragStart}
+                                                        onEditTask={onEditTask}
+                                                        getTaskPoints={getTaskPoints}
+                                                        fmt={fmt}
+                                                />
+                                        )}
+
                                         {view === 'board' && (
                                                 <BoardLanes
                                                         lanes={boardModel.lanes}
                                                         columns={boardModel.columns}
-                                                        onDropTask={onDropTask}
+                                                        onMoveTask={onMoveTask}
                                                         onDragStart={onDragStart}
                                                         onEditTask={onEditTask}
                                                         getModuleColor={getModuleColor}
@@ -328,7 +347,56 @@ function WipAlerts({ alerts }) {
         );
 }
 
-function BoardLanes({ lanes, columns, onDropTask, onDragStart, onEditTask, getModuleColor, getTaskPoints, fmt }) {
+function CanvasBoard({ tasks, columns = [], onMoveTask, onDragStart, onEditTask, getTaskPoints, fmt }) {
+        if (!tasks.length) {
+                return <EmptyState message='画布暂无任务，试试创建新任务或调整筛选条件。' />;
+        }
+
+        const defaultColumn = columns.find((column) => column.name === CANVAS_DEFAULT_DROP_STATUS);
+        const defaultSubStatus = defaultColumn?.subColumns?.[0]?.id || null;
+
+        const handleCanvasDrop = (event) => {
+                event.preventDefault();
+                const taskId = event.dataTransfer?.getData('application/x-kanban-task') || null;
+                onMoveTask({
+                        taskId,
+                        status: CANVAS_DEFAULT_DROP_STATUS,
+                        subStatus: defaultSubStatus,
+                        source: 'canvas-surface-drop',
+                });
+        };
+
+        return (
+                <div className='flex flex-col h-full'>
+                        <div
+                                className='flex-1 overflow-auto pr-1'
+                                onDragOver={(event) => {
+                                        event.preventDefault();
+                                        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+                                }}
+                                onDrop={handleCanvasDrop}
+                        >
+                                <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 auto-rows-fr p-1'>
+                                        {tasks.map(({ task, accentColor, laneLabel }) => (
+                                                <CanvasTaskCard
+                                                        key={task.id}
+                                                        task={task}
+                                                        accentColor={accentColor}
+                                                        laneLabel={laneLabel}
+                                                        onDragStart={onDragStart}
+                                                        onEditTask={onEditTask}
+                                                        getTaskPoints={getTaskPoints}
+                                                        fmt={fmt}
+                                                />
+                                        ))}
+                                </div>
+                        </div>
+                        <StatusDock columns={columns} onMoveTask={onMoveTask} />
+                </div>
+        );
+}
+
+function BoardLanes({ lanes, columns, onMoveTask, onDragStart, onEditTask, getModuleColor, getTaskPoints, fmt }) {
         if (!lanes || lanes.length === 0) {
                         return <EmptyState message='当前筛选条件下没有任务。尝试清除筛选或创建新任务吧。' />;
         }
@@ -350,7 +418,7 @@ function BoardLanes({ lanes, columns, onDropTask, onDragStart, onEditTask, getMo
                                                                 key={`${lane.id}-${column.id}`}
                                                                 lane={lane}
                                                                 column={column}
-                                                                onDropTask={onDropTask}
+                                                                onMoveTask={onMoveTask}
                                                                 onDragStart={onDragStart}
                                                                 onEditTask={onEditTask}
                                                                 getModuleColor={getModuleColor}
@@ -365,15 +433,18 @@ function BoardLanes({ lanes, columns, onDropTask, onDragStart, onEditTask, getMo
         );
 }
 
-function BoardColumn({ lane, column, onDropTask, onDragStart, onEditTask, getModuleColor, getTaskPoints, fmt }) {
+function BoardColumn({ lane, column, onMoveTask, onDragStart, onEditTask, getModuleColor, getTaskPoints, fmt }) {
         const tasks = lane.tasksByColumn.get(column.name) || [];
         const subColumns = column.subColumns || [];
         const handleDrop = (event, subStatus) => {
                 event.preventDefault();
-                onDropTask({
+                const taskId = event.dataTransfer?.getData('application/x-kanban-task') || null;
+                onMoveTask({
+                        taskId,
                         status: column.name,
                         subStatus: subStatus || null,
                         lane: { id: lane.id, label: lane.label, field: lane.field, value: lane.value },
+                        source: 'board-column-drop',
                 });
         };
 
@@ -459,6 +530,118 @@ function BoardColumn({ lane, column, onDropTask, onDragStart, onEditTask, getMod
         );
 }
 
+function CanvasTaskCard({ task, accentColor, laneLabel, onDragStart, onEditTask, getTaskPoints, fmt }) {
+        const assignees = getAssigneeList(task);
+        const checklist = task.checklist || [];
+        const completedChecklist = checklist.filter((item) => item.done).length;
+        const checklistSummary = checklist.length ? `${completedChecklist}/${checklist.length}` : null;
+
+        return (
+                <div
+                        draggable
+                        onDragStart={(event) => onDragStart(event, task.id)}
+                        className='group rounded-3xl border-2 bg-white shadow-sm hover:shadow-lg transition cursor-grab'
+                        style={{ borderColor: accentColor || '#CBD5F5' }}
+                >
+                        <div className='p-4 space-y-3'>
+                                <header className='flex items-start justify-between gap-2'>
+                                        <div>
+                                                <h3 className='text-sm font-semibold text-slate-800'>{task.title}</h3>
+                                                <p className='text-[11px] text-gray-500 mt-0.5'>#{task.id} · {task.type} · {getTaskPoints(task.level)} 点</p>
+                                        </div>
+                                        <span className='text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600'>{laneLabel || '默认泳道'}</span>
+                                </header>
+
+                                <section className='text-[11px] text-gray-600 space-y-1'>
+                                        <div>状态：{task.status}</div>
+                                        <div>负责人：{assignees.length ? assignees.join(', ') : '待分配'}</div>
+                                        {task.due_at && <div>截止：{fmt(task.due_at)}</div>}
+                                        {task.block_reason && <div className='text-red-500'>阻塞：{task.block_reason}</div>}
+                                        {checklistSummary && <div>子任务进度：{checklistSummary}</div>}
+                                        {task.tags?.length > 0 && (
+                                                <div className='flex flex-wrap gap-1'>
+                                                        {task.tags.map((tag) => (
+                                                                <span key={tag} className='px-1.5 py-0.5 text-[10px] bg-slate-100 text-slate-500 rounded-full'>
+                                                                        #{tag}
+                                                                </span>
+                                                        ))}
+                                                </div>
+                                        )}
+                                </section>
+
+                                <footer className='flex items-center justify-between text-[11px] text-gray-400'>
+                                        <span>优先级：{task.priority || 'Medium'}</span>
+                                        <div className='flex items-center gap-2'>
+                                                <span className='px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px]'>模块：{task.module || '未指定'}</span>
+                                                <button className='text-indigo-600 hover:text-indigo-800' onClick={() => onEditTask(task)}>
+                                                        编辑
+                                                </button>
+                                        </div>
+                                </footer>
+                        </div>
+
+                        <div className='hidden group-hover:block border-t border-dashed border-slate-200 p-4 text-[11px] text-slate-600 whitespace-pre-wrap leading-relaxed bg-slate-50 rounded-b-3xl'>
+                                {task.description || '暂无描述'}
+                        </div>
+                </div>
+        );
+}
+
+function StatusDock({ columns = [], onMoveTask }) {
+        if (!columns.length) return null;
+
+        const handleDrop = (event, column, subStatus = null) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const taskId = event.dataTransfer?.getData('application/x-kanban-task') || null;
+                        onMoveTask({
+                                taskId,
+                                status: column.name,
+                                subStatus: subStatus || null,
+                                source: subStatus ? 'canvas-dock-sub-drop' : 'canvas-dock-drop',
+                        });
+        };
+
+        return (
+                <div className='mt-4 border-t border-slate-200 pt-3 bg-white/90 backdrop-blur sticky bottom-0'>
+                        <div className='text-[11px] text-slate-500 mb-2'>拖拽任务至下方阶段以更新状态；子列提供更细粒度的落点。</div>
+                        <div className='flex gap-3 overflow-x-auto pb-1'>
+                                {columns.map((column) => (
+                                        <div
+                                                key={column.id}
+                                                className='min-w-[150px] rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-600 hover:border-indigo-400 hover:bg-indigo-50 transition-all'
+                                                onDragOver={(event) => {
+                                                        event.preventDefault();
+                                                        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+                                                }}
+                                                onDrop={(event) => handleDrop(event, column)}
+                                        >
+                                                <div className='font-semibold text-slate-700 text-sm'>{column.name}</div>
+                                                {column.subColumns?.length > 0 && (
+                                                        <div className='flex flex-wrap gap-1 mt-2'>
+                                                                {column.subColumns.map((sub) => (
+                                                                        <div
+                                                                                key={sub.id}
+                                                                                className='px-2 py-1 rounded-lg border border-slate-200 bg-white text-[11px] text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition'
+                                                                                onDragOver={(event) => {
+                                                                                        event.preventDefault();
+                                                                                        event.stopPropagation();
+                                                                                        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+                                                                                }}
+                                                                                onDrop={(event) => handleDrop(event, column, sub.id)}
+                                                                        >
+                                                                                {sub.name}
+                                                                        </div>
+                                                                ))}
+                                                        </div>
+                                                )}
+                                        </div>
+                                ))}
+                        </div>
+                </div>
+        );
+}
+
 function TaskCard({ task, onDragStart, onEditTask, getModuleColor, getTaskPoints, fmt }) {
         const assignees = getAssigneeList(task);
         const checklist = task.checklist || [];
@@ -468,11 +651,11 @@ function TaskCard({ task, onDragStart, onEditTask, getModuleColor, getTaskPoints
                 getModuleColor(task.module)
         }`;
         return (
-                <div
-                        draggable
-                        onDragStart={(e) => onDragStart(e, task.id)}
-                        className={className}
-                >
+        <div
+                draggable
+                onDragStart={(event) => onDragStart(event, task.id)}
+                className={className}
+        >
                         <div className='flex items-start justify-between gap-2'>
                                 <div>
                                         <div className='text-sm font-semibold text-slate-800'>{task.title}</div>

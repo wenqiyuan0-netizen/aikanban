@@ -18,7 +18,7 @@ This repository contains an AI-assisted project management workspace that combin
 | Project reset scaffolding | ✅ | 引入 `projectFlow` 状态机、确认弹窗钩子与世界信息界面切换逻辑。|
 | Lightweight classifier gating | 🟡 | 现在在看板输入前触发判定并记录 `intentLog`，旧项目分支仍待对接 UI。|
 | Module documentation | ✅ | 核心模块提供双语注释，说明职责与未完事项。|
-| Manual Kanban board UX | ✅ | 支持泳道、子列、拖拽（含跨泳道自动更新字段）、批量筛选、列表/图表视图与数据导出，人工操作即可完成全流程。|
+| Manual Kanban board UX | ✅ | 新增单一画布视图与状态停靠栏，保留泳道/子列/拖拽（含跨泳道自动更新字段）、批量筛选、列表/图表视图与数据导出，人工操作即可完成全流程。|
 | Multi-language toggle | ⏳ | UI 预留多语言切换位，尚未接入 `i18n` 工具链。|
 | Agent prompt library | ⏳ | 初步列出 prompt 层级，仍需实现正式模板与版本管理。|
 | Old project revival UX | ⏳ | 数据结构已预留 `archivedProjects`，界面切换与动画待完成。|
@@ -35,6 +35,7 @@ This repository contains an AI-assisted project management workspace that combin
 - ♻️ **任务删除回退尚未实现**：增量补丁目前支持新增/更新，但缺少安全的删除与撤销流程，后续在扩展 Prompt 时需加入回滚策略与本地回收站。
 - 🗓️ **Calendar view 未实现**：UI 预留入口但尚无日历渲染，需要在后续迭代中补充。
 - 🚨 **Retroactive history conflicts（历史事件冲突风险）**：当看板 Agent 通过 `event_add` 或修改任务时间戳来“补写过去”时，存在与既有事件顺序矛盾的风险（例如在任务标记为 `Done` 之后，又插入该任务的“开始”事件）。目前已通过更严格的 Prompt 约束其在修改历史前必须验证时间线一致性，如需真正重写历史必须向用户确认；后续仍需加入自动回归测试与冲突检测。
+- 🧭 **Prompt routing audit pending**：`handleMoveTask`/画布视图统一事件名为 `task-move:*`，需在 `src/app/services/aiService.js`、`src/ai/generatePatch.js` 等 prompt 生成处同步更新引用，避免旧的 `drag-drop` 埋点缺失导致上下文不一致。
 
 ## Logic audit annotations · 逻辑审计标注
 
@@ -43,7 +44,9 @@ This repository contains an AI-assisted project management workspace that combin
 - `AppContainer` · `handleDeleteTaskConfirm`：删除任务暂不支持撤销/回收站功能；后续在 Prompt 与 UI 中需新增安全回退策略。
 - `AppContainer` · `applyLaneFieldUpdate`：跨泳道拖拽仅同步单一字段，对多责任人复制逻辑需在后续版本中补强。
 - `AppContainer` · `handleConfirmAiTaskAdds`：已改为默认停留在看板通道，仅追加系统提示，并保留 `AUTO_WORLD_HANDOFF_ON_NEW_TASKS` 策略位控制是否自动跳转世界信息。后续若要完全统一体验，需要与顶部菜单入口共用同一个 `enterWorldInfoSetup` 中间层。
+- `AppContainer` · `handleMoveTask`：现作为唯一入口处理画布/列视图拖拽并把事件记录为 `task-move:*`。⚠️ 提醒：Prompt/埋点若仍监听 `drag-drop:*` 需同步调整（涉及 `src/app/services/aiService.js`、`src/ai/generatePatch.js`）。
 - `AppContainer` · `handleWorldInfoAbort`：当前只恢复一次性的 `preResetSnapshot`，需与正式的归档/恢复机制联动。
+- `src/components/KanbanView.js` · `CanvasBoard`：画布模式默认将任意 drop 归类为 `In Progress`（可选第一个子列），后续需评估是否开放落点菜单/键盘快捷键，避免误拖造成状态污染。
 - `src/app/services/aiService.js` · Prompt 分发：新增 `message.agent` 标记后需校验看板/世界信息 prompt 是否需要同步更新（待在下一轮集中检查）。
 
 ## Multi-agent focus · 多 Agent 协同重点
@@ -127,6 +130,7 @@ flowchart TD
 | `boardViewMode` | `workspace.projects[projectId].data.board.view` | 当前界面视图（board/list/cfd/burndown），帮助 AI 判断呈现方式。|
 | `boardWipAlerts` | `buildBoardModel(...).wipAlerts` | 本地检测的 WIP 超限信息清单，供 AI 做瓶颈提示。|
 | `boardLaneBreakdown` | `buildBoardModel(...).lanes` | 泳道 → 列 → 任务映射，用于生成分模块总结或导出指令。|
+| `boardCanvas` | `buildBoardModel(...).canvas` | 单一画布模式下的任务列表（含颜色/泳道标签），供 Prompt 在“无列”布局时引用。|
 
 > 📌 提示：看板 Agent 的 prompt 在迎接用户回到看板时会收到以上所有字段；当世界信息 Agent 完成配置后，系统会主动发送欢迎语，并强制要求本回合的 `patch_instructions` 为空数组，避免未确认的自动改动。
 >
@@ -161,8 +165,15 @@ flowchart TD
 
 - **快速筛选**：按钮映射 `QUICK_FILTERS`，状态保存在 `boardFilters.quick`。
 - **文本搜索**：`boardFilters.searchText` 存放当前关键字。
-- **视图切换**：`data.board.view` 记录 `board/list/cfd/burndown`，`calendar` 入口已预留待实现。
+- **视图切换**：`data.board.view` 默认值改为 `canvas`，仍保留 `board/list/cfd/burndown` 选项；`calendar` 入口已预留待实现。
 - **数据导出**：`handleBoardExport(format)` 支持 JSON/CSV 导出，可在 Prompt 提示用户“导出”操作依赖该函数。
+
+### E. Canvas view（单一画布视图）
+
+- **颜色=项目/模块**：`buildBoardModel(...).canvas.tasks` 会基于泳道策略选取第一条 lane 作为颜色来源（默认映射 `module` → `getModuleColor`）。
+- **拖拽语义**：在画布任意区域放下任务默认转入 `In Progress` 并尝试选择首个子列；底部状态停靠栏允许拖拽到任意列/子列。
+- **Prompt 引用**：`boardCanvas.tasks` 为 Prompt 提供“无列布局”的任务集合，以便在 AI 模式切换画布/列视图时引用正确字段。
+- **后续规划**：需为画布模式补充键盘快捷操作、状态选择菜单与颜色策略配置，以免大规模项目下仅靠拖拽影响效率。
 
 ## End-to-end usage walkthrough · 用户使用流程
 
@@ -243,6 +254,7 @@ flowchart TD
    **完成后更新 README：** 更新多语言配置方法与设计指引。
 6. **Prompt governance & telemetry**：收敛多 Agent Prompt 模板版本、记录轻量 Agent/看板 Agent 的响应结构，并为未来的策略调优输出埋点。
    - Next：建立 prompt 版本号、落地自动化回归（snapshot prompt + mock response）以避免误改。
+   - TODO：复核 `task-move:*` 事件与 `boardCanvas` 字段是否已在 `src/app/services/aiService.js`、`src/ai/generatePatch.js`、`src/app/logic/patches.js` 中被 prompt 引用，必要时更新模板与测试。
 
 ## Toward the paid desktop suite · 向付费桌面端套件迈进
 
@@ -272,6 +284,7 @@ flowchart TD
 
 ## Build log · 构建记录
 
+- 2025-06-02 · Step 9：改写看板为单一画布视图，引入状态停靠栏与统一的 `task-move:*` 事件；README 增补 prompt 字典 `boardCanvas`、记录需复核的 prompt 路由文件。
 - 2025-06-01 · Step 8：取消 AI 新任务后强制跳转世界信息流程，新增 `AUTO_WORLD_HANDOFF_ON_NEW_TASKS` 策略位、系统提示与 Agent 标签，并记录需复核的 prompt 分发逻辑。
 - 2025-06-01 · Step 7：抽离 `AppContainer` 以保持入口轻量，并在核心分支加入逻辑审计注释/README 对照清单。
 - 2025-05-31 · Step 6：修复跨泳道拖拽只更新列状态的问题，并将世界信息成员补丁改为增量合并，避免误删已有成员。
