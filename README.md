@@ -18,7 +18,7 @@ This repository contains an AI-assisted project management workspace that combin
 | Project reset scaffolding | ✅ | 引入 `projectFlow` 状态机、确认弹窗钩子与世界信息界面切换逻辑。|
 | Lightweight classifier gating | 🟡 | 现在在看板输入前触发判定并记录 `intentLog`，旧项目分支仍待对接 UI。|
 | Module documentation | ✅ | 核心模块提供双语注释，说明职责与未完事项。|
-| Manual Kanban board UX | ✅ | 新增单一画布视图与状态停靠栏，保留泳道/子列/拖拽（含跨泳道自动更新字段）、批量筛选、列表/图表视图与数据导出，人工操作即可完成全流程。|
+| Manual Kanban board UX | ✅ | 新增单一画布视图与状态停靠栏，保留层级泳道（用于指标计算）/子列/拖拽、批量筛选、列表/图表视图与数据导出，人工操作即可完成全流程。|
 | Multi-language toggle | ⏳ | UI 预留多语言切换位，尚未接入 `i18n` 工具链。|
 | Agent prompt library | ⏳ | 初步列出 prompt 层级，仍需实现正式模板与版本管理。|
 | Old project revival UX | ⏳ | 数据结构已预留 `archivedProjects`，界面切换与动画待完成。|
@@ -36,13 +36,14 @@ This repository contains an AI-assisted project management workspace that combin
 - 🗓️ **Calendar view 未实现**：UI 预留入口但尚无日历渲染，需要在后续迭代中补充。
 - 🚨 **Retroactive history conflicts（历史事件冲突风险）**：当看板 Agent 通过 `event_add` 或修改任务时间戳来“补写过去”时，存在与既有事件顺序矛盾的风险（例如在任务标记为 `Done` 之后，又插入该任务的“开始”事件）。目前已通过更严格的 Prompt 约束其在修改历史前必须验证时间线一致性，如需真正重写历史必须向用户确认；后续仍需加入自动回归测试与冲突检测。
 - 🧭 **Prompt routing audit pending**：`handleMoveTask`/画布视图统一事件名为 `task-move:*`，需在 `src/app/services/aiService.js`、`src/ai/generatePatch.js` 等 prompt 生成处同步更新引用，避免旧的 `drag-drop` 埋点缺失导致上下文不一致。
+- 📐 **Swimlane prompt alignment**：泳道数据现仅代表 `task.level`，需要复核 `src/app/services/aiService.js` 与世界信息 prompt 是否仍假定“泳道=模块/负责人”，并计划在后续版本统一更新模板示例。
 
 ## Logic audit annotations · 逻辑审计标注
 
 - `src/app/containers/AppContainer.js` · `processKanbanPatchResponse`：目前仅在检测到新增任务时才触发世界信息补写。若后续允许无新增任务的补写流程，需要在此处放宽条件并更新 UI 提示。
 - `AppContainer` · `handleResetConfirm`：重置项目时直接将世界信息清空为 `{}`，假设下一步一定重新填写。若未来支持保留部分旧信息，需要拓展状态机分支。
 - `AppContainer` · `handleDeleteTaskConfirm`：删除任务暂不支持撤销/回收站功能；后续在 Prompt 与 UI 中需新增安全回退策略。
-- `AppContainer` · `applyLaneFieldUpdate`：跨泳道拖拽仅同步单一字段，对多责任人复制逻辑需在后续版本中补强。
+- `AppContainer` · `applyLaneFieldUpdate`：泳道仅同步 `task.level`，用于保持 Epic / Story / Task 层级一致；若未来扩展更多泳道语义需同步更新。
 - `AppContainer` · `handleConfirmAiTaskAdds`：已改为默认停留在看板通道，仅追加系统提示，并保留 `AUTO_WORLD_HANDOFF_ON_NEW_TASKS` 策略位控制是否自动跳转世界信息。后续若要完全统一体验，需要与顶部菜单入口共用同一个 `enterWorldInfoSetup` 中间层。
 - `AppContainer` · `handleMoveTask`：现作为唯一入口处理画布/列视图拖拽并把事件记录为 `task-move:*`。⚠️ 提醒：Prompt/埋点若仍监听 `drag-drop:*` 需同步调整（涉及 `src/app/services/aiService.js`、`src/ai/generatePatch.js`）。
 - `AppContainer` · `handleWorldInfoAbort`：当前只恢复一次性的 `preResetSnapshot`，需与正式的归档/恢复机制联动。
@@ -126,10 +127,10 @@ flowchart TD
 | `userPreferences` | 预留字段 | 尚未填充的个性化设定，未来会同步到看板 prompt 中定义风格和提醒方式。|
 | `worldInfoEntryContext` | `projectFlow` 上下文 | 触发世界信息流程的来源（新项目/AI 新任务/手动进入），在 prompt 中提示 AI 避免引用旧项目上下文。|
 | `boardFilters` | `workspace.projects[projectId].data.board.filters` | 当前启用的快速筛选器 ID 列表与搜索关键词。|
-| `boardSwimlaneStrategy` | `workspace.projects[projectId].data.board.swimlanes.defaultStrategy` | 泳道分组依据（module/assignee/priority/type）。|
+| `boardSwimlaneStrategy` | `workspace.projects[projectId].data.board.swimlanes.defaultStrategy` | 泳道分组依据（目前仅支持 `hierarchy` / `none`），提示 AI 泳道字段等同于 `task.level`。|
 | `boardViewMode` | `workspace.projects[projectId].data.board.view` | 当前界面视图（board/list/cfd/burndown），帮助 AI 判断呈现方式。|
 | `boardWipAlerts` | `buildBoardModel(...).wipAlerts` | 本地检测的 WIP 超限信息清单，供 AI 做瓶颈提示。|
-| `boardLaneBreakdown` | `buildBoardModel(...).lanes` | 泳道 → 列 → 任务映射，用于生成分模块总结或导出指令。|
+| `boardLaneBreakdown` | `buildBoardModel(...).lanes` | 泳道 → 列 → 任务映射，现用于区分 Epic / Story / Task 层级，保证 CFD / WIP 统计不被高层级工作项干扰。|
 | `boardCanvas` | `buildBoardModel(...).canvas` | 单一画布模式下的任务列表（含颜色/泳道标签），供 Prompt 在“无列”布局时引用。|
 
 > 📌 提示：看板 Agent 的 prompt 在迎接用户回到看板时会收到以上所有字段；当世界信息 Agent 完成配置后，系统会主动发送欢迎语，并强制要求本回合的 `patch_instructions` 为空数组，避免未确认的自动改动。
@@ -156,10 +157,10 @@ flowchart TD
 
 ### C. Swimlanes
 
-- **策略存储**：`data.board.swimlanes.defaultStrategy` 记录当前泳道模式（module/assignee/priority/type）。
-- **多责任人支持**：负责人泳道会复制卡片至多条泳道，Prompt 可从 `boardLaneBreakdown` 获取聚合数据。
-- **跨泳道拖拽自动赋值**：当用户把任务拖到不同泳道时，前端会同步更新对应字段（如 `module`、`assignees`、`priority`、`type`），确保刷新后不会回弹，并让 Prompt 读取最新分组信息。
-- **UI 操作**：`onChangeSwimlane` 更新策略并持久化为 `boardSwimlaneStrategy`。
+- **定位**：泳道仅用于指标计算时区分需求层级（Epic / Story / Task），防止史诗级工作项拉高 CFD / WIP。
+- **策略存储**：`data.board.swimlanes.defaultStrategy` 目前支持 `hierarchy`（默认）与 `none`，对应 `task.level` 与“无泳道”两种模式。
+- **拖拽同步**：跨泳道拖拽仅更新 `task.level`，不会复制卡片或改变 `module`/`assignees`，确保数据唯一。
+- **UI 操作**：`onChangeSwimlane` 更新策略并持久化为 `boardSwimlaneStrategy`，供指标与 Prompt 读取。
 
 ### D. Filters & Views
 
@@ -171,6 +172,7 @@ flowchart TD
 ### E. Canvas view（单一画布视图）
 
 - **颜色=项目/模块**：`buildBoardModel(...).canvas.tasks` 会基于泳道策略选取第一条 lane 作为颜色来源（默认映射 `module` → `getModuleColor`）。
+  - 📌 更新：2025-06-01 起泳道不再用于模块划分；颜色始终来自 `task.module`（或世界信息的 `moduleList`），用于在单画布内区分并行工作块。
 - **拖拽语义**：在画布任意区域放下任务默认转入 `In Progress` 并尝试选择首个子列；底部状态停靠栏允许拖拽到任意列/子列。
 - **Prompt 引用**：`boardCanvas.tasks` 为 Prompt 提供“无列布局”的任务集合，以便在 AI 模式切换画布/列视图时引用正确字段。
 - **后续规划**：需为画布模式补充键盘快捷操作、状态选择菜单与颜色策略配置，以免大规模项目下仅靠拖拽影响效率。
@@ -284,6 +286,7 @@ flowchart TD
 
 ## Build log · 构建记录
 
+- 2025-06-02 · Step 10：重设泳道语义（仅保留需求层级 / 无泳道），同步更新 `boardModel` 与 `applyLaneFieldUpdate` 并在 README 标注 prompt 对齐待办。
 - 2025-06-02 · Step 9：改写看板为单一画布视图，引入状态停靠栏与统一的 `task-move:*` 事件；README 增补 prompt 字典 `boardCanvas`、记录需复核的 prompt 路由文件。
 - 2025-06-01 · Step 8：取消 AI 新任务后强制跳转世界信息流程，新增 `AUTO_WORLD_HANDOFF_ON_NEW_TASKS` 策略位、系统提示与 Agent 标签，并记录需复核的 prompt 分发逻辑。
 - 2025-06-01 · Step 7：抽离 `AppContainer` 以保持入口轻量，并在核心分支加入逻辑审计注释/README 对照清单。

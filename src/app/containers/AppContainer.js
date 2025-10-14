@@ -309,32 +309,13 @@ export function AppContainer() {
         }
 
         function applyLaneFieldUpdate(task, lane) {
-                // Logic Audit · 逻辑审计：跨泳道拖拽目前只同步一个字段（module/priority/type/assignee）。
-                // 多责任人泳道仍以复制方式呈现，如需保持多选，需要在后续版本扩展 lane 元数据与本地更新策略。
-                switch (lane.field) {
-                        case 'module': {
-                                task.module = lane.value || null;
-                                break;
+                // Logic Audit · 逻辑审计：泳道现仅用于区分需求层级（Epic / Story / Task）。拖拽到其它泳道
+                // 时同步更新 task.level，以便指标与 Prompt 读取正确层级；若后续扩展其它泳道语义需在此补充。
+                if (lane.field === 'level') {
+                        task.level = lane.value || 'Task';
+                        if (!task.type) {
+                                task.type = task.level;
                         }
-                        case 'priority': {
-                                task.priority = lane.value || null;
-                                break;
-                        }
-                        case 'type': {
-                                task.type = lane.value || (task.level || task.type || 'Task');
-                                task.level = task.type;
-                                break;
-                        }
-                        case 'assignees': {
-                                if (lane.value) {
-                                        task.assignees = [lane.value];
-                                } else {
-                                        task.assignees = [];
-                                }
-                                break;
-                        }
-                        default:
-                                break;
                 }
         }
 

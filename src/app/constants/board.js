@@ -48,28 +48,19 @@ export const BOARD_STATUSES = [
 
 export const SWIMLANE_STRATEGIES = [
         {
-                value: 'module',
-                label: '按模块/史诗 (module)',
-                taskField: 'module',
-                promptKey: 'board.swimlane.module',
+                value: 'hierarchy',
+                label: '按需求层级 (Epic / Story / Task)',
+                taskField: 'level',
+                promptKey: 'board.swimlane.hierarchy',
+                description:
+                        '用于在指标计算时区分 Epic、Story、Task 等层级，防止高层级工作项干扰 CFD / WIP 统计。',
         },
         {
-                value: 'assignee',
-                label: '按负责人 (assignee)',
-                taskField: 'assignees',
-                promptKey: 'board.swimlane.assignee',
-        },
-        {
-                value: 'priority',
-                label: '按优先级 (priority)',
-                taskField: 'priority',
-                promptKey: 'board.swimlane.priority',
-        },
-        {
-                value: 'type',
-                label: '按任务类型 (type)',
-                taskField: 'type',
-                promptKey: 'board.swimlane.type',
+                value: 'none',
+                label: '不区分泳道 (仅聚合统计)',
+                taskField: null,
+                promptKey: 'board.swimlane.none',
+                description: '关闭泳道分组，所有任务视为同一泳道，依旧保持指标可计算。',
         },
 ];
 
@@ -118,7 +109,7 @@ export const BOARD_EXPORT_OPTIONS = [
 ];
 
 export const DEFAULT_BOARD_CONFIG = {
-        swimlaneStrategy: 'module',
+        swimlaneStrategy: 'hierarchy',
         defaultViewMode: 'canvas',
 };
 

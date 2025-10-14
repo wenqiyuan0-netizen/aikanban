@@ -7,8 +7,8 @@
  *   can consume.
  *
  * Implementation Notes / 实现方式:
- * - 支持根据 `SWIMLANE_STRATEGIES` 动态生成泳道；当策略为负责人时，任务会同时出现在
- *   多个泳道中（以 `laneId::taskId` 作为渲染 key），符合 Jira/Linear 的表现。
+ * - 根据 `SWIMLANE_STRATEGIES` 动态生成泳道，目前聚焦在“需求层级”与“无泳道”两种模式，
+ *   以确保 CFD / WIP 统计不会被 Epic / Story / Task 混合干扰。
  * - 快速筛选器、搜索关键字会在构建模型时预处理，确保 UI 组件无需重复逻辑。
  * - 返回的 `promptContext` 字段预留给 Kanban Agent Prompt，标记当前泳道、过滤条件。
  *
@@ -20,7 +20,6 @@
  * - 将泳道/过滤器设置与用户偏好（`userPreferences`) 对齐，实现跨设备一致性。
  */
 import { QUICK_FILTERS, SWIMLANE_STRATEGIES } from '../constants/board';
-import { getAssigneeList } from '../constants/task';
 import { getModuleColor } from '../constants/colors';
 
 export function buildBoardModel({
@@ -70,11 +69,11 @@ export function buildBoardModel({
         const laneMap = new Map();
         const canvasTasks = [];
         filteredTasks.forEach((task) => {
-                const laneKeys = computeLaneKeys(task, laneConfig, members);
-                const primaryLane = laneKeys[0] || {
+                const laneKey = computeLaneKey(task, laneConfig);
+                const primaryLane = laneKey || {
                         id: 'default',
                         label: '默认泳道',
-                        color: getModuleColor(task.module),
+                        color: null,
                         field: laneConfig?.taskField || null,
                         value: null,
                 };
@@ -87,25 +86,20 @@ export function buildBoardModel({
                         laneValue: primaryLane.value ?? null,
                 });
 
-                laneKeys.forEach((laneKey) => {
-                        const entry = laneMap.get(laneKey.id) || {
-                                id: laneKey.id,
-                                label: laneKey.label,
-                                color: laneKey.color,
-                                field: laneKey.field || null,
-                                value: laneKey.value,
-                                tasksByColumn: new Map(),
-                        };
+                const effectiveLane = laneKey || primaryLane;
+                const entry = laneMap.get(effectiveLane.id) || {
+                        id: effectiveLane.id,
+                        label: effectiveLane.label,
+                        color: effectiveLane.color || null,
+                        field: effectiveLane.field || null,
+                        value: effectiveLane.value ?? null,
+                        tasksByColumn: new Map(),
+                };
 
-                        if (entry.value === undefined && laneKey.value !== undefined) {
-                                entry.value = laneKey.value;
-                        }
-
-                        const columnTasks = entry.tasksByColumn.get(task.status) || [];
-                        columnTasks.push(task);
-                        entry.tasksByColumn.set(task.status, columnTasks);
-                        laneMap.set(laneKey.id, entry);
-                });
+                const columnTasks = entry.tasksByColumn.get(task.status) || [];
+                columnTasks.push(task);
+                entry.tasksByColumn.set(task.status, columnTasks);
+                laneMap.set(effectiveLane.id, entry);
         });
 
         const lanes = Array.from(laneMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans'));
@@ -137,65 +131,29 @@ export function buildBoardModel({
         };
 }
 
-function computeLaneKeys(task, laneConfig, members) {
-        if (!laneConfig) return [{ id: 'default', label: '默认泳道', color: null }];
-        switch (laneConfig.taskField) {
-                case 'module': {
-                        const value = task.module || null;
-                        const label = value || '未分配模块';
-                        return [
-                                {
-                                        id: `module:${label}`,
-                                        label,
-                                        color: getModuleColor(task.module),
-                                        field: 'module',
-                                        value,
-                                },
-                        ];
-                }
-                case 'priority': {
-                        const value = task.priority || null;
-                        const label = value || '未设置优先级';
-                        return [
-                                { id: `priority:${label}`, label, field: 'priority', value },
-                        ];
-                }
-                case 'type': {
-                        const value = task.type || task.level || 'Task';
-                        return [{ id: `type:${value}`, label: value, field: 'type', value }];
-                }
-                case 'assignees': {
-                        const assignees = getAssigneeList(task);
-                        if (!assignees.length) {
-                                return [
-                                        {
-                                                id: 'assignee:unassigned',
-                                                label: '未分配',
-                                                field: 'assignees',
-                                                value: null,
-                                        },
-                                ];
-                        }
-                        return assignees.map((id) => {
-                                const member = members.find((m) => m.id === id);
-                                return {
-                                        id: `assignee:${id}`,
-                                        label: member ? `${member.name} (${member.role || '成员'})` : id,
-                                        field: 'assignees',
-                                        value: id,
-                                };
-                        });
-                }
-                default:
-                        return [
-                                {
-                                        id: 'default',
-                                        label: '默认泳道',
-                                        field: laneConfig?.taskField || null,
-                                        value: null,
-                                },
-                        ];
+function computeLaneKey(task, laneConfig) {
+        if (!laneConfig) {
+                return { id: 'default', label: '默认泳道', field: null, value: null };
         }
+
+        if (laneConfig.taskField === 'level') {
+                const value = task.level || task.type || 'Task';
+                return {
+                        id: `level:${value}`,
+                        label: value,
+                        field: 'level',
+                        value,
+                        color: null,
+                };
+        }
+
+        return {
+                id: 'default',
+                label: '默认泳道',
+                field: laneConfig.taskField || null,
+                value: null,
+                color: null,
+        };
 }
 
 function computeWipAlerts(columns, tasks) {
