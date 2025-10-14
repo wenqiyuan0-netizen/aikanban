@@ -23,27 +23,27 @@ const KANBAN_PATCH_SCHEMA = {
 				properties: {
 					type: { type: "STRING", enum: ["task_add", "task_update", "member_add", "member_remove", "event_add"] },
 					id: { type: "STRING", description: "Target ID for update/remove operations." },
-					updates: {
-						type: "OBJECT",
-						description: "Fields to update for task_update operation (only include changed fields).",
-						properties: {
-							title: { type: "STRING" }, status: { type: "STRING", enum: ["To Do", "In Progress", "Review", "Done"] },
-							owner: { type: "ARRAY", items: { type: "STRING" } }, block_reason: { type: "STRING", nullable: true, description: "Set to non-null string to block, or null/undefined to unblock." }, 
-							due_at: { type: "STRING" }, level: { type: "STRING", enum: ["Epic", "Story", "Task"] },
-							depends_on: { type: "ARRAY", items: { type: "STRING" } }
-						}
-					},
+                                        updates: {
+                                                type: "OBJECT",
+                                                description: "Fields to update for task_update operation (only include changed fields).",
+                                                properties: {
+                                                        title: { type: "STRING" }, status: { type: "STRING", enum: ["To Do", "Designing", "In Progress", "Code Review", "QA", "Done"] },
+                                                        owner: { type: "ARRAY", items: { type: "STRING" } }, block_reason: { type: "STRING", nullable: true, description: "Set to non-null string to block, or null/undefined to unblock." },
+                                                        due_at: { type: "STRING" }, level: { type: "STRING", enum: ["Epic", "Story", "Task"] },
+                                                        depends_on: { type: "ARRAY", items: { type: "STRING" } }
+                                                }
+                                        },
 					details: {
 						type: "OBJECT",
 						description: "Full details for task_add, member_add, or event_add.",
 						properties: {
 							id: { type: "STRING" }, name: { type: "STRING" }, role: { type: "STRING" }, title: { type: "STRING" },
-							status: { type: "STRING", enum: ["To Do", "In Progress", "Review", "Done"] }, owner: { type: "ARRAY", items: { type: "STRING" } }, module: { type: "STRING" },
-							time: { type: "STRING" }, type: { type: "STRING" }, task_id: { type: "STRING" },
-							level: { type: "STRING", enum: ["Epic", "Story", "Task"] }, depends_on: { type: "ARRAY", items: { type: "STRING" } },
-							created_at: { type: "STRING" }
-						}
-					}
+                                                        status: { type: "STRING", enum: ["To Do", "Designing", "In Progress", "Code Review", "QA", "Done"] }, owner: { type: "ARRAY", items: { type: "STRING" } }, module: { type: "STRING" },
+                                                        time: { type: "STRING" }, type: { type: "STRING" }, task_id: { type: "STRING" },
+                                                        level: { type: "STRING", enum: ["Epic", "Story", "Task"] }, depends_on: { type: "ARRAY", items: { type: "STRING" } },
+                                                        created_at: { type: "STRING" }
+                                                }
+                                        }
 				},
 				required: ["type"]
 			}
@@ -124,7 +124,7 @@ const generatePatch = async (apiKey, mode, fullPrompt) => {
 				b) 你的回复 (\`ai_response\`) 必须具有专业性，并结合看板数据进行解释。
 			4.  **处理阻塞:** 如果用户要求阻塞任务，使用 \`task_update\` 设置 \`block_reason\` 字段，**不要**更改 \`status\` 字段。
 
-			**工作流约束:** 任务移动必须遵循 **To Do -> In Progress -> Review -> Done** 的线性顺序。**禁止跳过阶段，除非用户明确要求。**
+                        **工作流约束:** 任务移动必须遵循 **To Do -> Designing -> In Progress -> Code Review -> QA -> Done** 的线性顺序。**禁止跳过阶段，除非用户明确要求。**
 		`;
 	}
 	
