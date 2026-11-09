@@ -1,70 +1,83 @@
-# Getting Started with Create React App
+<div align="center">
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+# AI-Kanban
 
-## Available Scripts
+> 一体化 AI 驱动的看板 + 聊天工具，支持任务分级、WIP 预警、依赖关系与智能洞察。
 
-In the project directory, you can run:
+![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=black)
+![Create React App](https://img.shields.io/badge/CRA-5.0-09d3ac?style=flat)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-38B2AC?style=flat&logo=tailwind-css&logoColor=white)
+![Stars](https://img.shields.io/github/stars/wenqiyuan0-netizen/aikanban?style=social)
 
-### `npm start`
+</div>
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+AI-Kanban 是一个基于 React 的互动式看板应用。它把传统看板与 AI 对话结合，允许用自然语言操作看板，并提供任务分级（Epic / Story / Task）、故事点统计、WIP 时长预警、依赖阻塞检测和可视化图表。
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Features
 
-### `npm test`
+- **双模式**：看板操作模式 + World Info 引导设置模式
+- **AI 代理**：以“专业看板经理”身份分析完整看板数据，生成增量补丁指令并用亲切中文回复
+- **任务分级与故事点**：Epic / Story / Task，按点数统计工作量
+- **智能预警**：WIP 停留时长超阈值提醒、依赖阻塞检测
+- **可视化**：基于 Recharts 的 CFD 等图表（按列颜色）
+- **导入导出与历史**：支持看板状态管理与事件记录
+- 使用 **DeepSeek API**（OpenAI 兼容接口）
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Quick Start
 
-### `npm run build`
+**前提条件：** Node.js 18+
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```bash
+git clone https://github.com/wenqiyuan0-netizen/aikanban.git
+cd aikanban
+npm install
+npm start
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+打开 [http://localhost:3000](http://localhost:3000)。
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+> **重要**：AI 功能需要 DeepSeek API Key。当前代码中有硬编码的 Key（仅供演示），上线前请替换为自己的 Key，并避免将真实 Key 提交到仓库。
 
-### `npm run eject`
+## Installation
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+npm install
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+常用命令：
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+| 命令             | 说明                     |
+|------------------|--------------------------|
+| `npm start`      | 启动开发服务器（默认端口 3000） |
+| `npm run build`  | 构建生产版本到 `build/`   |
+| `npm test`       | 运行测试                 |
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+项目使用 CRACO + Tailwind CSS。
 
-## Learn More
+## Usage
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+1. 启动后进入看板界面，可拖拽任务卡片在列之间移动。
+2. 使用聊天框用自然语言让 AI 添加、更新、分配或分析任务。
+3. 在 World Info 模式下引导补全项目元数据（项目名、目标、模块、成员等）。
+4. 查看图表了解看板健康状态与累积流量。
+5. AI 会返回增量补丁（不会覆盖整个看板），并用亲切口吻给出建议。
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Configuration
 
-### Code Splitting
+- **DeepSeek API Key**：在 `src/App.js` 中查找 `HARDCODED_API_KEY` 并替换为你自己的 Key。
+- 模型与端点已配置为 DeepSeek 官方兼容接口（`deepseek-chat`）。
+- 任务点数权重、WIP 阈值、模块颜色等可在代码中调整。
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## Contributing
 
-### Analyzing the Bundle Size
+欢迎提交 Issue 和 Pull Request。请保持代码风格一致，并在提交前说明改动目的。
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## License
 
-### Making a Progressive Web App
+本仓库目前没有许可证文件。如需使用、分叉或再分发，请与作者确认使用条款。
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+## Acknowledgments
 
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- 图表：[Recharts](https://recharts.org/)
+- 样式：[Tailwind CSS](https://tailwindcss.com/)
+- AI 接口：[DeepSeek](https://www.deepseek.com/)
