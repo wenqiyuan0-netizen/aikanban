@@ -2,7 +2,7 @@
 
 # AI-Kanban
 
-> 一体化 AI 驱动的看板 + 聊天工具，支持任务分级、WIP 预警、依赖关系与智能洞察。
+> An integrated AI-driven Kanban + chat tool with task hierarchy, WIP warnings, dependencies, and intelligent insights.
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=black)
 ![Create React App](https://img.shields.io/badge/CRA-5.0-09d3ac?style=flat)
@@ -11,21 +11,21 @@
 
 </div>
 
-AI-Kanban 是一个基于 React 的互动式看板应用。它把传统看板与 AI 对话结合，允许用自然语言操作看板，并提供任务分级（Epic / Story / Task）、故事点统计、WIP 时长预警、依赖阻塞检测和可视化图表。
+AI-Kanban is an interactive React-based Kanban board that combines traditional board management with AI conversation. It lets you operate the board using natural language and provides task levels (Epic / Story / Task), story point tracking, WIP duration warnings, dependency blocking detection, and visualizations.
 
 ## Features
 
-- **双模式**：看板操作模式 + World Info 引导设置模式
-- **AI 代理**：以“专业看板经理”身份分析完整看板数据，生成增量补丁指令并用亲切中文回复
-- **任务分级与故事点**：Epic / Story / Task，按点数统计工作量
-- **智能预警**：WIP 停留时长超阈值提醒、依赖阻塞检测
-- **可视化**：基于 Recharts 的 CFD 等图表（按列颜色）
-- **导入导出与历史**：支持看板状态管理与事件记录
-- 使用 **DeepSeek API**（OpenAI 兼容接口）
+- **Dual modes**: Kanban operation mode + World Info guided setup mode
+- **AI agent**: Acts as a professional Kanban manager, analyzes the full board data, generates incremental patch instructions, and replies in a friendly tone
+- **Task hierarchy & story points**: Epic / Story / Task with point-based workload tracking
+- **Smart warnings**: WIP stay-duration threshold alerts and dependency blocking detection
+- **Visualizations**: Recharts-based charts such as CFD (color-coded by column)
+- **Import / export & history**: Board state management and event logging
+- Powered by the **DeepSeek API** (OpenAI-compatible)
 
 ## Quick Start
 
-**前提条件：** Node.js 18+
+**Prerequisites:** Node.js 18+
 
 ```bash
 git clone https://github.com/wenqiyuan0-netizen/aikanban.git
@@ -34,9 +34,9 @@ npm install
 npm start
 ```
 
-打开 [http://localhost:3000](http://localhost:3000)。
+Open [http://localhost:3000](http://localhost:3000).
 
-> **重要**：AI 功能需要 DeepSeek API Key。当前代码中有硬编码的 Key（仅供演示），上线前请替换为自己的 Key，并避免将真实 Key 提交到仓库。
+> **Important**: AI features require a DeepSeek API key. The code currently contains a hardcoded key for demo purposes only. Replace it with your own key before going public and never commit real keys to the repository.
 
 ## Installation
 
@@ -44,40 +44,40 @@ npm start
 npm install
 ```
 
-常用命令：
+Common commands:
 
-| 命令             | 说明                     |
-|------------------|--------------------------|
-| `npm start`      | 启动开发服务器（默认端口 3000） |
-| `npm run build`  | 构建生产版本到 `build/`   |
-| `npm test`       | 运行测试                 |
+| Command          | Description                          |
+|------------------|--------------------------------------|
+| `npm start`      | Start the development server (port 3000) |
+| `npm run build`  | Build the production version into `build/` |
+| `npm test`       | Run tests                            |
 
-项目使用 CRACO + Tailwind CSS。
+The project uses CRACO + Tailwind CSS.
 
 ## Usage
 
-1. 启动后进入看板界面，可拖拽任务卡片在列之间移动。
-2. 使用聊天框用自然语言让 AI 添加、更新、分配或分析任务。
-3. 在 World Info 模式下引导补全项目元数据（项目名、目标、模块、成员等）。
-4. 查看图表了解看板健康状态与累积流量。
-5. AI 会返回增量补丁（不会覆盖整个看板），并用亲切口吻给出建议。
+1. After starting, enter the Kanban view and drag task cards between columns.
+2. Use the chat box to ask the AI in natural language to add, update, assign, or analyze tasks.
+3. In World Info mode, let the AI guide you through completing project metadata (name, goals, modules, members, etc.).
+4. View the charts to understand board health and cumulative flow.
+5. The AI returns incremental patches (it never overwrites the whole board) and gives suggestions in a friendly tone.
 
 ## Configuration
 
-- **DeepSeek API Key**：在 `src/App.js` 中查找 `HARDCODED_API_KEY` 并替换为你自己的 Key。
-- 模型与端点已配置为 DeepSeek 官方兼容接口（`deepseek-chat`）。
-- 任务点数权重、WIP 阈值、模块颜色等可在代码中调整。
+- **DeepSeek API Key**: Locate `HARDCODED_API_KEY` in `src/App.js` and replace it with your own key.
+- The model and endpoint are already configured for the official DeepSeek OpenAI-compatible API (`deepseek-chat`).
+- Task point weights, WIP thresholds, module colors, etc. can be adjusted in the source code.
 
 ## Contributing
 
-欢迎提交 Issue 和 Pull Request。请保持代码风格一致，并在提交前说明改动目的。
+Issues and pull requests are welcome. Please keep the code style consistent and clearly describe the purpose of your changes.
 
 ## License
 
-本仓库目前没有许可证文件。如需使用、分叉或再分发，请与作者确认使用条款。
+This repository currently has no license file. If you want to use, fork, or redistribute the project, please confirm the terms with the author.
 
 ## Acknowledgments
 
-- 图表：[Recharts](https://recharts.org/)
-- 样式：[Tailwind CSS](https://tailwindcss.com/)
-- AI 接口：[DeepSeek](https://www.deepseek.com/)
+- Charts: [Recharts](https://recharts.org/)
+- Styling: [Tailwind CSS](https://tailwindcss.com/)
+- AI API: [DeepSeek](https://www.deepseek.com/)
